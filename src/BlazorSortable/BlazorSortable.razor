@@ -61,20 +61,21 @@
         builder.SetKey(PlaceholderKey);
         builder.AddAttribute(1, "class", PlaceholderCssClass());
         builder.AddAttribute(2, "data-sortable-item", "true");
+        builder.AddAttribute(3, "data-sortable-placeholder", "true");
 
-        builder.AddAttribute(3, "ondragover", EventCallback.Factory.Create<DragEventArgs>(this, NoOp));
-        builder.AddEventPreventDefaultAttribute(4, "ondragover", true);
+        builder.AddAttribute(4, "ondragover", EventCallback.Factory.Create<DragEventArgs>(this, NoOp));
+        builder.AddEventPreventDefaultAttribute(5, "ondragover", true);
 
-        builder.AddAttribute(5, "ondragenter", EventCallback.Factory.Create<DragEventArgs>(this, NoOp));
-        builder.AddEventStopPropagationAttribute(6, "ondragenter", true);
-        builder.AddEventPreventDefaultAttribute(7, "ondragenter", true);
+        builder.AddAttribute(6, "ondragenter", EventCallback.Factory.Create<DragEventArgs>(this, NoOp));
+        builder.AddEventStopPropagationAttribute(7, "ondragenter", true);
+        builder.AddEventPreventDefaultAttribute(8, "ondragenter", true);
 
-        builder.AddAttribute(8, "ondrop", EventCallback.Factory.Create<DragEventArgs>(this, OnPlaceholderDrop));
-        builder.AddEventStopPropagationAttribute(9, "ondrop", true);
+        builder.AddAttribute(9, "ondrop", EventCallback.Factory.Create<DragEventArgs>(this, OnPlaceholderDrop));
+        builder.AddEventStopPropagationAttribute(10, "ondrop", true);
 
         if (ItemTemplate is not null && Service.Context?.Item is TItem preview)
         {
-            builder.AddContent(10, ItemTemplate(preview));
+            builder.AddContent(11, ItemTemplate(preview));
         }
 
         builder.CloseElement();

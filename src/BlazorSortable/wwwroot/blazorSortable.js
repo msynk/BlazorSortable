@@ -28,6 +28,42 @@ export function initHandle(listEl, handleSelector) {
     listEl.addEventListener('dragend', reset, true);
 }
 
+// --- Drop position -------------------------------------------------------
+
+// Given a pointer position, return the index (0..count) at which the dragged
+// item should be inserted. Mirrors SortableJS: the pointer landing past an
+// item's midpoint inserts after it, so the very end of the list is reachable
+// by hovering the lower/right half of the last item. Orientation (vertical vs
+// horizontal) is inferred from the first two items, defaulting to vertical.
+export function dropIndex(listEl, x, y) {
+    if (!listEl) return -1;
+
+    const rects = [];
+    for (const child of listEl.children) {
+        if (!child.hasAttribute('data-sortable-item')) continue;
+        if (child.hasAttribute('data-sortable-placeholder')) continue;
+        const r = child.getBoundingClientRect();
+        if (r.width === 0 && r.height === 0) continue; // hidden (e.g. the source ghost)
+        rects.push(r);
+    }
+
+    const n = rects.length;
+    if (n === 0) return 0;
+
+    const horizontal = n >= 2 &&
+        Math.abs(rects[1].left - rects[0].left) > Math.abs(rects[1].top - rects[0].top);
+
+    for (let i = 0; i < n; i++) {
+        const r = rects[i];
+        const mid = horizontal ? r.left + r.width / 2 : r.top + r.height / 2;
+        const p = horizontal ? x : y;
+        if (p < mid) return i;
+    }
+
+    // Past every midpoint: append at the end.
+    return n;
+}
+
 // --- FLIP animation ------------------------------------------------------
 
 // Snapshot the current on-screen position of every item. Reading

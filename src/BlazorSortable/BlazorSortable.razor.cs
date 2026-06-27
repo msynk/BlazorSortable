@@ -210,54 +210,65 @@ public partial class BlazorSortable<TItem> : IBlazorSortableZone, IAsyncDisposab
         var ctx = Service.Context;
         if (ctx is null || Disabled || Items is null) return;
 
-        if (ReferenceEquals(ctx.CurrentZone, this))
+        // Cross-list previews are positioned by the container's dragover handler,
+        // which has the pointer coordinates needed to land before or after an item.
+        if (!ReferenceEquals(ctx.CurrentZone, this)) return;
+
+        // Back over the home list: drop any cross-list placeholder and reorder for real.
+        await ClearPlaceholderAsync(ctx);
+
+        if (!AllowSort) return;
+        if (ctx.Item is not TItem dragged || Comparer.Equals(dragged, overItem)) return;
+
+        int from = Items.IndexOf(dragged);
+        int to = Items.IndexOf(overItem);
+        if (from < 0 || to < 0) return;
+
+        await CaptureFlipAsync();
+        Items.RemoveAt(from);
+        int insertAt = from < to ? Items.IndexOf(overItem) + 1 : Items.IndexOf(overItem);
+        Items.Insert(insertAt, dragged);
+        RequestFlipPlay();
+
+        await RaiseEventAsync(BlazorSortableEventType.Change, new BlazorSortableMoveInfo
         {
-            // Back over the home list: drop any cross-list placeholder and reorder for real.
-            await ClearPlaceholderAsync(ctx);
-
-            if (!AllowSort) return;
-            if (ctx.Item is not TItem dragged || Comparer.Equals(dragged, overItem)) return;
-
-            int from = Items.IndexOf(dragged);
-            int to = Items.IndexOf(overItem);
-            if (from < 0 || to < 0) return;
-
-            await CaptureFlipAsync();
-            Items.RemoveAt(from);
-            int insertAt = from < to ? Items.IndexOf(overItem) + 1 : Items.IndexOf(overItem);
-            Items.Insert(insertAt, dragged);
-            RequestFlipPlay();
-
-            await RaiseEventAsync(BlazorSortableEventType.Change, new BlazorSortableMoveInfo
-            {
-                Item = dragged!,
-                OldIndex = from,
-                NewIndex = insertAt,
-                From = this,
-                To = this
-            });
-            StateHasChanged();
-        }
-        else
-        {
-            // Dragged in from another list: show a placeholder where it would land.
-            // The actual item is not moved until drop, so the native drag stays alive.
-            if (!CanReceiveFrom(ctx.Source) || ctx.Source.PullMode == BlazorSortablePull.None) return;
-            int index = Items.IndexOf(overItem);
-            if (index < 0) index = Count;
-            await ShowPlaceholderAsync(ctx, index);
-        }
+            Item = dragged!,
+            OldIndex = from,
+            NewIndex = insertAt,
+            From = this,
+            To = this
+        });
+        StateHasChanged();
     }
 
-    private async Task OnContainerDragEnter()
+    private Task OnContainerDragEnter(DragEventArgs e) => UpdateCrossListPlaceholderAsync(e);
+
+    /// <summary>
+    /// Previews where an item dragged in from another list would land, based on the
+    /// pointer position. Driven by <c>dragover</c> (which bubbles up from the items)
+    /// so the placeholder can sit before or after any item — including past the last
+    /// one, which makes the end of the list reachable across lists.
+    /// </summary>
+    private async Task UpdateCrossListPlaceholderAsync(DragEventArgs e)
     {
         var ctx = Service.Context;
         if (ctx is null || Disabled || Items is null) return;
         if (ReferenceEquals(ctx.CurrentZone, this)) return; // home list handles its own items
         if (!CanReceiveFrom(ctx.Source) || ctx.Source.PullMode == BlazorSortablePull.None) return;
 
-        // Over the empty area / padding: preview an append at the end.
-        await ShowPlaceholderAsync(ctx, Count);
+        int index = await GetDropIndexAsync(e.ClientX, e.ClientY);
+        if (index < 0 || index > Count) index = Count;
+        await ShowPlaceholderAsync(ctx, index);
+    }
+
+    private async Task<int> GetDropIndexAsync(double clientX, double clientY)
+    {
+        if (_module is null) return Count;
+        try
+        {
+            return await _module.InvokeAsync<int>("dropIndex", _listElement, clientX, clientY);
+        }
+        catch (JSDisconnectedException) { return Count; }
     }
 
     /// <summary>Shows (or moves) the drop placeholder in this zone at <paramref name="index"/>.</summary>
@@ -313,7 +324,7 @@ public partial class BlazorSortable<TItem> : IBlazorSortableZone, IAsyncDisposab
 
     private Task OnPlaceholderDrop(DragEventArgs _) => DropAsync();
 
-    private Task OnContainerDragOver(DragEventArgs _) => Task.CompletedTask;
+    private Task OnContainerDragOver(DragEventArgs e) => UpdateCrossListPlaceholderAsync(e);
 
     private Task OnContainerDrop(DragEventArgs _) => DropAsync();
 
