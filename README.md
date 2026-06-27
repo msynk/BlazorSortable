@@ -19,9 +19,10 @@ BlazorSortable is built on the browser's native HTML5 drag-and-drop events wired
 ## Project structure
 
 ```
-BlazorSortable.slnx
-├─ src/BlazorSortable/            # the Razor Class Library (the component)
-└─ samples/BlazorSortable.Demo/   # Blazor WebAssembly demo app
+src/
+├─ BlazorSortable.slnx
+├─ BlazorSortable/            # the Razor Class Library (the component)
+└─ BlazorSortable.Demo/       # Blazor WebAssembly demo app
 ```
 
 ## Getting started
@@ -244,7 +245,7 @@ All events are `EventCallback<SortableEventArgs<TItem>>`.
 ## Running the demo
 
 ```bash
-dotnet run --project samples/BlazorSortable.Demo
+dotnet run --project src/BlazorSortable.Demo
 ```
 
 Then open the URL shown in the console. The demo mirrors the SortableJS demo site: simple list, shared lists, cloning, disabling sorting, handle, filter, grid, nested sortables, and an events log.

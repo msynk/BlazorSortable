@@ -12,7 +12,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\src\BlazorSortable\BlazorSortable.csproj" />
+    <ProjectReference Include="..\BlazorSortable\BlazorSortable.csproj" />
   </ItemGroup>
 
 </Project>
