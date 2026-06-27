@@ -1,0 +1,27 @@
+@page "/handle"
+
+<PageTitle>BlazorSortable — Handle</PageTitle>
+
+<div class="demo-section">
+    <h1>Handle</h1>
+    <p class="demo-lead">
+        With <code>Handle=".handle"</code> a row can only be dragged by grabbing the
+        handle icon. The rest of the row stays selectable and clickable.
+    </p>
+
+    <Sortable @bind-Items="items" TItem="string" Handle=".handle"
+              Class="demo-list" ItemClass="demo-item" GhostClass="demo-ghost">
+        <ItemTemplate Context="item">
+            <span class="handle">☰</span>@item
+        </ItemTemplate>
+    </Sortable>
+
+    <p class="mt-3"><strong>Order:</strong> @string.Join(", ", items)</p>
+</div>
+
+@code {
+    private IList<string> items = new List<string>
+    {
+        "Item 1", "Item 2", "Item 3", "Item 4", "Item 5", "Item 6"
+    };
+}

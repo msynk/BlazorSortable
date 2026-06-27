@@ -1,0 +1,41 @@
+/* Default styling for BlazorSortable. Import via:
+   <link rel="stylesheet" href="_content/BlazorSortable/blazorSortable.css" /> */
+
+.sortable {
+    position: relative;
+}
+
+.sortable-item {
+    cursor: grab;
+    user-select: none;
+    transition: background-color 0.15s ease, transform 0.15s ease;
+}
+
+.sortable-item:active {
+    cursor: grabbing;
+}
+
+/* The item currently being dragged. */
+.sortable-ghost {
+    opacity: 0.4;
+}
+
+.sortable-chosen {
+    background-color: rgba(13, 110, 253, 0.12);
+}
+
+/* The original item is hidden in its source list while it is shown as the
+   ghost preview in a target list (same approach as SortableJS). */
+.sortable-hidden {
+    display: none !important;
+}
+
+/* Items excluded by the Filter predicate. */
+.sortable-filtered {
+    cursor: not-allowed;
+    opacity: 0.7;
+}
+
+.sortable-disabled .sortable-item {
+    cursor: default;
+}

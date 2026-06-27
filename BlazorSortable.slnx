@@ -1,0 +1,8 @@
+<Solution>
+  <Folder Name="/samples/">
+    <Project Path="samples/BlazorSortable.Demo/BlazorSortable.Demo.csproj" />
+  </Folder>
+  <Folder Name="/src/">
+    <Project Path="src/BlazorSortable/BlazorSortable.csproj" />
+  </Folder>
+</Solution>

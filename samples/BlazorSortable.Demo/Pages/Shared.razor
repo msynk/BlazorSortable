@@ -1,0 +1,39 @@
+@page "/shared"
+
+<PageTitle>BlazorSortable — Shared lists</PageTitle>
+
+<div class="demo-section">
+    <h1>Shared lists</h1>
+    <p class="demo-lead">
+        Both lists use the same <code>Group</code> name, so you can drag items from
+        one into the other. Drop onto an item or into the empty space of a list.
+    </p>
+
+    <div class="demo-columns">
+        <div class="demo-col">
+            <div class="demo-col-title">List A</div>
+            <Sortable @bind-Items="left" TItem="string" Group="shared"
+                      Class="demo-list" ItemClass="demo-item" ItemClassSelector="Tint" GhostClass="demo-ghost">
+                <ItemTemplate Context="item">@item</ItemTemplate>
+            </Sortable>
+        </div>
+        <div class="demo-col">
+            <div class="demo-col-title">List B</div>
+            <Sortable @bind-Items="right" TItem="string" Group="shared"
+                      Class="demo-list" ItemClass="demo-item" ItemClassSelector="Tint" GhostClass="demo-ghost">
+                <ItemTemplate Context="item">@item</ItemTemplate>
+            </Sortable>
+        </div>
+    </div>
+
+    <p class="mt-3"><strong>A:</strong> @string.Join(", ", left)</p>
+    <p><strong>B:</strong> @string.Join(", ", right)</p>
+</div>
+
+@code {
+    private IList<string> left = new List<string> { "A1", "A2", "A3", "A4", "A5" };
+    private IList<string> right = new List<string> { "B1", "B2", "B3", "B4", "B5" };
+
+    // Style follows the item, not the list: "B" items stay tinted after moving.
+    private string? Tint(string item) => item.StartsWith("B") ? "tinted" : null;
+}

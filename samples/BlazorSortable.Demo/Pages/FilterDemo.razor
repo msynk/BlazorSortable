@@ -1,0 +1,30 @@
+@page "/filter"
+
+<PageTitle>BlazorSortable — Filter</PageTitle>
+
+<div class="demo-section">
+    <h1>Filter</h1>
+    <p class="demo-lead">
+        The <code>Filter</code> predicate marks certain items as non-draggable. Try
+        dragging the red item — it won't move.
+    </p>
+
+    <Sortable @bind-Items="items" TItem="string"
+              Filter="IsLocked"
+              Class="demo-list" ItemClass="demo-item" GhostClass="demo-ghost">
+        <ItemTemplate Context="item">
+            <span class="@(IsLocked(item) ? "filtered d-block m-n2 p-2 rounded" : "")">@item</span>
+        </ItemTemplate>
+    </Sortable>
+
+    <p class="mt-3"><strong>Order:</strong> @string.Join(", ", items)</p>
+</div>
+
+@code {
+    private IList<string> items = new List<string>
+    {
+        "Item 1", "Item 2", "Item 3", "Filtered (locked)", "Item 4", "Item 5"
+    };
+
+    private bool IsLocked(string item) => item.StartsWith("Filtered");
+}

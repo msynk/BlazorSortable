@@ -1,0 +1,84 @@
+@typeparam TItem
+@namespace BlazorSortable
+@implements BlazorSortable.Internal.ISortableZone
+@implements IAsyncDisposable
+
+<div @ref="_listElement"
+     id="@Id"
+     class="@ContainerCssClass"
+     style="@Style"
+     data-sortable-list="@Id"
+     @ondragover="OnContainerDragOver"
+     @ondragover:preventDefault="true"
+     @ondragenter="OnContainerDragEnter"
+     @ondragenter:preventDefault="true"
+     @ondrop="OnContainerDrop">
+    @if (Items is not null)
+    {
+        for (int i = 0; i < Items.Count; i++)
+        {
+            int index = i;
+            TItem current = Items[index];
+
+            if (IsPlaceholderAt(index))
+            {
+                @RenderPlaceholder()
+            }
+
+            bool draggable = IsDraggable(current);
+            <div @key="current"
+                 class="@ItemCssClass(current)"
+                 data-sortable-item="true"
+                 draggable="@(draggable ? "true" : "false")"
+                 @ondragstart="() => OnItemDragStart(current)"
+                 @ondragstart:stopPropagation="true"
+                 @ondragend="OnItemDragEnd"
+                 @ondragenter="() => OnItemDragEnter(current)"
+                 @ondragenter:preventDefault="true"
+                 @ondragenter:stopPropagation="true"
+                 @ondragover:preventDefault="true"
+                 @ondrop="OnItemDrop"
+                 @ondrop:stopPropagation="true">
+                @if (ItemTemplate is not null)
+                {
+                    @ItemTemplate(current)
+                }
+            </div>
+        }
+
+        if (IsPlaceholderAt(Items.Count))
+        {
+            @RenderPlaceholder()
+        }
+    }
+    @ChildContent
+</div>
+
+@code {
+    private RenderFragment RenderPlaceholder() => builder =>
+    {
+        builder.OpenElement(0, "div");
+        builder.SetKey(PlaceholderKey);
+        builder.AddAttribute(1, "class", PlaceholderCssClass());
+        builder.AddAttribute(2, "data-sortable-item", "true");
+
+        builder.AddAttribute(3, "ondragover", EventCallback.Factory.Create<DragEventArgs>(this, NoOp));
+        builder.AddEventPreventDefaultAttribute(4, "ondragover", true);
+
+        builder.AddAttribute(5, "ondragenter", EventCallback.Factory.Create<DragEventArgs>(this, NoOp));
+        builder.AddEventStopPropagationAttribute(6, "ondragenter", true);
+        builder.AddEventPreventDefaultAttribute(7, "ondragenter", true);
+
+        builder.AddAttribute(8, "ondrop", EventCallback.Factory.Create<DragEventArgs>(this, OnPlaceholderDrop));
+        builder.AddEventStopPropagationAttribute(9, "ondrop", true);
+
+        if (ItemTemplate is not null && Service.Context?.Item is TItem preview)
+        {
+            builder.AddContent(10, ItemTemplate(preview));
+        }
+
+        builder.CloseElement();
+    };
+
+    private static void NoOp() { }
+}

@@ -1,0 +1,14 @@
+@* Recursive component: a sortable list whose items can each contain another sortable list.
+   Every level shares the "nested" group, so items can move between branches. *@
+
+<Sortable Items="Items" TItem="NestedItem" Group="nested"
+          Class="nested-list" ItemClass="nested-item" GhostClass="demo-ghost">
+    <ItemTemplate Context="item">
+        <div>@item.Name</div>
+        <NestedList Items="item.Children" />
+    </ItemTemplate>
+</Sortable>
+
+@code {
+    [Parameter, EditorRequired] public List<NestedItem> Items { get; set; } = new();
+}

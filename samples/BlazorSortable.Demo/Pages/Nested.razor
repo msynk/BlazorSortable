@@ -1,0 +1,48 @@
+@page "/nested"
+
+<PageTitle>BlazorSortable — Nested</PageTitle>
+
+<div class="demo-section">
+    <h1>Nested sortables</h1>
+    <p class="demo-lead">
+        Each item can hold its own sortable list. All levels share the same group,
+        so items can be dragged between branches and depths.
+    </p>
+
+    <NestedList Items="tree" />
+</div>
+
+@code {
+    private List<NestedItem> tree = new()
+    {
+        new NestedItem
+        {
+            Name = "Item 1.1",
+            Children = new()
+            {
+                new NestedItem { Name = "Item 2.1" },
+                new NestedItem
+                {
+                    Name = "Item 2.2",
+                    Children = new()
+                    {
+                        new NestedItem { Name = "Item 3.1" },
+                        new NestedItem { Name = "Item 3.2" },
+                    }
+                },
+                new NestedItem { Name = "Item 2.3" },
+            }
+        },
+        new NestedItem { Name = "Item 1.2" },
+        new NestedItem
+        {
+            Name = "Item 1.3",
+            Children = new()
+            {
+                new NestedItem { Name = "Item 2.4" },
+                new NestedItem { Name = "Item 2.5" },
+            }
+        },
+        new NestedItem { Name = "Item 1.4" },
+    };
+}

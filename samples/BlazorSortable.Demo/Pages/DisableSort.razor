@@ -1,0 +1,38 @@
+@page "/disable-sort"
+
+<PageTitle>BlazorSortable — Disabling sorting</PageTitle>
+
+<div class="demo-section">
+    <h1>Disabling sorting</h1>
+    <p class="demo-lead">
+        The left list has <code>Sort="false"</code> and <code>Put="false"</code>, so its
+        items cannot be reordered or received, but they can still be dragged out into
+        the right list.
+    </p>
+
+    <div class="demo-columns">
+        <div class="demo-col">
+            <div class="demo-col-title">Source (no sorting, no put)</div>
+            <Sortable @bind-Items="left" TItem="string" Group="ds-shared"
+                      Sort="false" Put="false"
+                      Class="demo-list" ItemClass="demo-item" GhostClass="demo-ghost">
+                <ItemTemplate Context="item">@item</ItemTemplate>
+            </Sortable>
+        </div>
+        <div class="demo-col">
+            <div class="demo-col-title">Target</div>
+            <Sortable @bind-Items="right" TItem="string" Group="ds-shared"
+                      Class="demo-list" ItemClass="demo-item tinted" GhostClass="demo-ghost">
+                <ItemTemplate Context="item">@item</ItemTemplate>
+            </Sortable>
+        </div>
+    </div>
+
+    <p class="mt-3"><strong>Source:</strong> @string.Join(", ", left)</p>
+    <p><strong>Target:</strong> @string.Join(", ", right)</p>
+</div>
+
+@code {
+    private IList<string> left = new List<string> { "Item 1", "Item 2", "Item 3", "Item 4", "Item 5" };
+    private IList<string> right = new List<string> { "Item A", "Item B", "Item C" };
+}
