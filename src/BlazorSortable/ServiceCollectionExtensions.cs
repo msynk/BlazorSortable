@@ -8,12 +8,12 @@ namespace BlazorSortable;
 public static class ServiceCollectionExtensions
 {
     /// <summary>
-    /// Registers the <see cref="SortableService"/> required by <see cref="Sortable{TItem}"/>.
+    /// Registers the <see cref="BlazorSortableService"/> required by <see cref="BlazorSortable{TItem}"/>.
     /// Scoped so each Blazor Server circuit gets an isolated drag state.
     /// </summary>
     public static IServiceCollection AddBlazorSortable(this IServiceCollection services)
     {
-        services.AddScoped<SortableService>();
+        services.AddScoped<BlazorSortableService>();
         return services;
     }
 }

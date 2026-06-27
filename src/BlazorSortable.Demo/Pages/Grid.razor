@@ -9,12 +9,12 @@
         you get a sortable grid. Drag the squares to rearrange them.
     </p>
 
-    <Sortable @bind-Items="items" TItem="int"
+    <BlazorSortable @bind-Items="items" TItem="int"
               Class="demo-grid" GhostClass="demo-ghost">
         <ItemTemplate Context="n">
             <div class="grid-square">@n</div>
         </ItemTemplate>
-    </Sortable>
+    </BlazorSortable>
 </div>
 
 @code {

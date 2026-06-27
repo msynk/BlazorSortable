@@ -1,11 +1,11 @@
 namespace BlazorSortable.Internal;
 
 /// <summary>
-/// Non-generic surface of a <see cref="Sortable{TItem}"/> list, used by the
+/// Non-generic surface of a <see cref="BlazorSortable{TItem}"/> list, used by the
 /// drag coordinator and sibling zones to manipulate items and raise events
 /// without knowing the concrete item type.
 /// </summary>
-internal interface ISortableZone
+internal interface IBlazorSortableZone
 {
     /// <summary>Stable DOM id of the list.</summary>
     string Id { get; }
@@ -20,10 +20,10 @@ internal interface ISortableZone
     bool IsDisabled { get; }
 
     /// <summary>How items may be pulled out of this list.</summary>
-    SortablePull PullMode { get; }
+    BlazorSortablePull PullMode { get; }
 
     /// <summary>Whether this list can receive items dragged from <paramref name="source"/>.</summary>
-    bool CanReceiveFrom(ISortableZone source);
+    bool CanReceiveFrom(IBlazorSortableZone source);
 
     int Count { get; }
     int IndexOf(object item);
@@ -47,5 +47,5 @@ internal interface ISortableZone
     Task RefreshAsync();
 
     /// <summary>Raises the given lifecycle event on this zone.</summary>
-    Task RaiseEventAsync(SortableEventType type, SortableMoveInfo info);
+    Task RaiseEventAsync(BlazorSortableEventType type, BlazorSortableMoveInfo info);
 }

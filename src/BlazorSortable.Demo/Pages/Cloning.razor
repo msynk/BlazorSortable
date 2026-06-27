@@ -5,7 +5,7 @@
 <div class="demo-section">
     <h1>Cloning</h1>
     <p class="demo-lead">
-        Drag from the Source list to the Target. With <code>Pull="SortablePull.Clone"</code>
+        Drag from the Source list to the Target. With <code>Pull="BlazorSortablePull.Clone"</code>
         the item is copied into the Target and the original stays in the Source — so the
         same item can be cloned again and again.
     </p>
@@ -13,18 +13,18 @@
     <div class="demo-columns">
         <div class="demo-col">
             <div class="demo-col-title">Source (clone)</div>
-            <Sortable @bind-Items="left" TItem="CloneDemoItem" Group="clone-shared"
-                      Pull="SortablePull.Clone" Clone="Duplicate"
+            <BlazorSortable @bind-Items="left" TItem="CloneDemoItem" Group="clone-shared"
+                      Pull="BlazorSortablePull.Clone" Clone="Duplicate"
                       Class="demo-list" ItemClass="demo-item" GhostClass="demo-ghost">
                 <ItemTemplate Context="item">@item.Name</ItemTemplate>
-            </Sortable>
+            </BlazorSortable>
         </div>
         <div class="demo-col">
             <div class="demo-col-title">Target</div>
-            <Sortable @bind-Items="right" TItem="CloneDemoItem" Group="clone-shared"
+            <BlazorSortable @bind-Items="right" TItem="CloneDemoItem" Group="clone-shared"
                       Class="demo-list" ItemClass="demo-item tinted" GhostClass="demo-ghost">
                 <ItemTemplate Context="item">@item.Name</ItemTemplate>
-            </Sortable>
+            </BlazorSortable>
         </div>
     </div>
 

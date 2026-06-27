@@ -11,7 +11,7 @@
 
     <div class="demo-columns mb-3">
         <div class="demo-col">
-            <Sortable @bind-Items="left" TItem="string" Group="ev"
+            <BlazorSortable @bind-Items="left" TItem="string" Group="ev"
                       Class="demo-list" ItemClass="demo-item" GhostClass="demo-ghost"
                       OnStart='e => Log("start", e)'
                       OnEnd='e => Log("end", e)'
@@ -19,16 +19,16 @@
                       OnRemove='e => Log("remove", e)'
                       OnUpdate='e => Log("update", e)'>
                 <ItemTemplate Context="item">@item</ItemTemplate>
-            </Sortable>
+            </BlazorSortable>
         </div>
         <div class="demo-col">
-            <Sortable @bind-Items="right" TItem="string" Group="ev"
+            <BlazorSortable @bind-Items="right" TItem="string" Group="ev"
                       Class="demo-list" ItemClass="demo-item tinted" GhostClass="demo-ghost"
                       OnAdd='e => Log("add", e)'
                       OnRemove='e => Log("remove", e)'
                       OnUpdate='e => Log("update", e)'>
                 <ItemTemplate Context="item">@item</ItemTemplate>
-            </Sortable>
+            </BlazorSortable>
         </div>
     </div>
 
@@ -49,7 +49,7 @@
     private IList<string> right = new List<string> { "Item A", "Item B" };
     private readonly List<string> log = new();
 
-    private void Log(string name, SortableEventArgs<string> e)
+    private void Log(string name, BlazorSortableEventArgs<string> e)
     {
         log.Insert(0, $"[{name}] item='{e.Item}' {e.FromId[..6]}#{e.OldIndex} -> {e.ToId[..6]}#{e.NewIndex}");
         if (log.Count > 30) log.RemoveAt(log.Count - 1);

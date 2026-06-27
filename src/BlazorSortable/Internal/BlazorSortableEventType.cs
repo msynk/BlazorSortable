@@ -1,7 +1,7 @@
 namespace BlazorSortable.Internal;
 
 /// <summary>Identifies which lifecycle callback a zone should raise.</summary>
-internal enum SortableEventType
+internal enum BlazorSortableEventType
 {
     Start,
     End,

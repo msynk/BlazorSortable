@@ -12,17 +12,17 @@
     <div class="demo-columns">
         <div class="demo-col">
             <div class="demo-col-title">List A</div>
-            <Sortable @bind-Items="left" TItem="string" Group="shared"
+            <BlazorSortable @bind-Items="left" TItem="string" Group="shared"
                       Class="demo-list" ItemClass="demo-item" ItemClassSelector="Tint" GhostClass="demo-ghost">
                 <ItemTemplate Context="item">@item</ItemTemplate>
-            </Sortable>
+            </BlazorSortable>
         </div>
         <div class="demo-col">
             <div class="demo-col-title">List B</div>
-            <Sortable @bind-Items="right" TItem="string" Group="shared"
+            <BlazorSortable @bind-Items="right" TItem="string" Group="shared"
                       Class="demo-list" ItemClass="demo-item" ItemClassSelector="Tint" GhostClass="demo-ghost">
                 <ItemTemplate Context="item">@item</ItemTemplate>
-            </Sortable>
+            </BlazorSortable>
         </div>
     </div>
 

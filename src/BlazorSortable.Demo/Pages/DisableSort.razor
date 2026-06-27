@@ -13,18 +13,18 @@
     <div class="demo-columns">
         <div class="demo-col">
             <div class="demo-col-title">Source (no sorting, no put)</div>
-            <Sortable @bind-Items="left" TItem="string" Group="ds-shared"
+            <BlazorSortable @bind-Items="left" TItem="string" Group="ds-shared"
                       Sort="false" Put="false"
                       Class="demo-list" ItemClass="demo-item" GhostClass="demo-ghost">
                 <ItemTemplate Context="item">@item</ItemTemplate>
-            </Sortable>
+            </BlazorSortable>
         </div>
         <div class="demo-col">
             <div class="demo-col-title">Target</div>
-            <Sortable @bind-Items="right" TItem="string" Group="ds-shared"
+            <BlazorSortable @bind-Items="right" TItem="string" Group="ds-shared"
                       Class="demo-list" ItemClass="demo-item tinted" GhostClass="demo-ghost">
                 <ItemTemplate Context="item">@item</ItemTemplate>
-            </Sortable>
+            </BlazorSortable>
         </div>
     </div>
 

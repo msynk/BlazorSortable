@@ -4,10 +4,10 @@ namespace BlazorSortable;
 
 /// <summary>
 /// Per-circuit coordinator that holds the active drag operation so that
-/// multiple <see cref="Sortable{TItem}"/> lists in the same group can exchange items.
+/// multiple <see cref="BlazorSortable{TItem}"/> lists in the same group can exchange items.
 /// Register with <c>builder.Services.AddBlazorSortable()</c>.
 /// </summary>
-public sealed class SortableService
+public sealed class BlazorSortableService
 {
-    internal DragContext? Context { get; set; }
+    internal BlazorSortableDragContext? Context { get; set; }
 }

@@ -14,7 +14,7 @@ BlazorSortable is built on the browser's native HTML5 drag-and-drop events wired
 - Works with any layout (vertical lists, grids, nested lists)
 - Two-way binding with `@bind-Items`
 - SortableJS-style lifecycle events (`OnStart`, `OnEnd`, `OnAdd`, `OnRemove`, `OnUpdate`, `OnSort`, `OnChange`)
-- Generic and strongly typed: `Sortable<TItem>`
+- Generic and strongly typed: `BlazorSortable<TItem>`
 
 ## Project structure
 
@@ -37,7 +37,7 @@ Add a project (or package) reference to `BlazorSortable`.
 
 ### 2. Register the service
 
-`Sortable<TItem>` needs a scoped coordinator that tracks the active drag across lists.
+`BlazorSortable<TItem>` needs a scoped coordinator that tracks the active drag across lists.
 
 ```csharp
 using BlazorSortable;
@@ -68,9 +68,9 @@ Add the namespace to `_Imports.razor`:
 ### Basic list
 
 ```razor
-<Sortable Items="items" TItem="string">
+<BlazorSortable Items="items" TItem="string">
     <ItemTemplate Context="item">@item</ItemTemplate>
-</Sortable>
+</BlazorSortable>
 
 @code {
     private List<string> items = new() { "Item 1", "Item 2", "Item 3" };
@@ -82,9 +82,9 @@ Add the namespace to `_Imports.razor`:
 Use `@bind-Items` to keep your own field in sync as items are reordered or moved.
 
 ```razor
-<Sortable @bind-Items="items" TItem="string">
+<BlazorSortable @bind-Items="items" TItem="string">
     <ItemTemplate Context="item">@item</ItemTemplate>
-</Sortable>
+</BlazorSortable>
 
 @code {
     private IList<string> items = new List<string> { "A", "B", "C" };
@@ -98,37 +98,37 @@ Use `@bind-Items` to keep your own field in sync as items are reordered or moved
 Lists with the same `Group` can exchange items.
 
 ```razor
-<Sortable @bind-Items="left" TItem="string" Group="shared">
+<BlazorSortable @bind-Items="left" TItem="string" Group="shared">
     <ItemTemplate Context="item">@item</ItemTemplate>
-</Sortable>
+</BlazorSortable>
 
-<Sortable @bind-Items="right" TItem="string" Group="shared">
+<BlazorSortable @bind-Items="right" TItem="string" Group="shared">
     <ItemTemplate Context="item">@item</ItemTemplate>
-</Sortable>
+</BlazorSortable>
 ```
 
 Restrict the exchange per list with `Pull` and `Put`:
 
 ```razor
 <!-- Items can be dragged out, but nothing can be dropped in -->
-<Sortable @bind-Items="left" TItem="string" Group="shared" Put="false" Sort="false">
+<BlazorSortable @bind-Items="left" TItem="string" Group="shared" Put="false" Sort="false">
     ...
-</Sortable>
+</BlazorSortable>
 ```
 
 ### Cloning
 
-Set `Pull="SortablePull.Clone"` to copy items into the target instead of moving them. Provide a `Clone` factory that returns a **distinct object** for each copy (Blazor requires unique `@key`s, so value-equal copies such as duplicate strings are not allowed).
+Set `Pull="BlazorSortablePull.Clone"` to copy items into the target instead of moving them. Provide a `Clone` factory that returns a **distinct object** for each copy (Blazor requires unique `@key`s, so value-equal copies such as duplicate strings are not allowed).
 
 ```razor
-<Sortable @bind-Items="source" TItem="Card" Group="cards"
-          Pull="SortablePull.Clone" Clone="c => new Card { Name = c.Name }">
+<BlazorSortable @bind-Items="source" TItem="Card" Group="cards"
+          Pull="BlazorSortablePull.Clone" Clone="c => new Card { Name = c.Name }">
     <ItemTemplate Context="card">@card.Name</ItemTemplate>
-</Sortable>
+</BlazorSortable>
 
-<Sortable @bind-Items="target" TItem="Card" Group="cards">
+<BlazorSortable @bind-Items="target" TItem="Card" Group="cards">
     <ItemTemplate Context="card">@card.Name</ItemTemplate>
-</Sortable>
+</BlazorSortable>
 ```
 
 ### Drag handle
@@ -136,11 +136,11 @@ Set `Pull="SortablePull.Clone"` to copy items into the target instead of moving 
 Limit dragging to a handle element by passing a CSS selector.
 
 ```razor
-<Sortable @bind-Items="items" TItem="string" Handle=".handle">
+<BlazorSortable @bind-Items="items" TItem="string" Handle=".handle">
     <ItemTemplate Context="item">
         <span class="handle">☰</span> @item
     </ItemTemplate>
-</Sortable>
+</BlazorSortable>
 ```
 
 ### Filter (locked items)
@@ -148,9 +148,9 @@ Limit dragging to a handle element by passing a CSS selector.
 Return `true` for items that must not be dragged.
 
 ```razor
-<Sortable @bind-Items="items" TItem="string" Filter='i => i.StartsWith("Locked")'>
+<BlazorSortable @bind-Items="items" TItem="string" Filter='i => i.StartsWith("Locked")'>
     <ItemTemplate Context="item">@item</ItemTemplate>
-</Sortable>
+</BlazorSortable>
 ```
 
 ### Per-item styling
@@ -158,25 +158,25 @@ Return `true` for items that must not be dragged.
 `ItemClassSelector` appends a class based on the item itself, so styling follows the item even when it moves to another list.
 
 ```razor
-<Sortable @bind-Items="left" TItem="string" Group="shared"
+<BlazorSortable @bind-Items="left" TItem="string" Group="shared"
           ItemClass="card" ItemClassSelector='i => i.StartsWith("B") ? "tinted" : null'>
     <ItemTemplate Context="item">@item</ItemTemplate>
-</Sortable>
+</BlazorSortable>
 ```
 
 ### Events
 
 ```razor
-<Sortable @bind-Items="items" TItem="string"
+<BlazorSortable @bind-Items="items" TItem="string"
           OnUpdate='e => Console.WriteLine($"moved {e.Item}: {e.OldIndex} -> {e.NewIndex}")'
           OnAdd='e => Console.WriteLine($"added {e.Item} from {e.FromId}")'>
     <ItemTemplate Context="item">@item</ItemTemplate>
-</Sortable>
+</BlazorSortable>
 ```
 
 ## API reference
 
-### `Sortable<TItem>` parameters
+### `BlazorSortable<TItem>` parameters
 
 | Parameter | Type | Default | Description |
 |---|---|---|---|
@@ -185,7 +185,7 @@ Return `true` for items that must not be dragged.
 | `ChildContent` | `RenderFragment?` | `null` | Extra content rendered after the items (e.g. an empty-state). |
 | `Id` | `string` | auto | Stable DOM id for the list. |
 | `Group` | `string?` | `null` | Lists sharing a group name can exchange items. |
-| `Pull` | `SortablePull` | `Move` | How items leave this list: `Move`, `None`, or `Clone`. |
+| `Pull` | `BlazorSortablePull` | `Move` | How items leave this list: `Move`, `None`, or `Clone`. |
 | `Put` | `bool` | `true` | Whether items from the group may be dropped here. |
 | `Sort` | `bool` | `true` | Allow reordering within this list. |
 | `Disabled` | `bool` | `false` | Disable all drag behaviour. |
@@ -202,7 +202,7 @@ Return `true` for items that must not be dragged.
 
 ### Events
 
-All events are `EventCallback<SortableEventArgs<TItem>>`.
+All events are `EventCallback<BlazorSortableEventArgs<TItem>>`.
 
 | Event | Raised when |
 |---|---|
@@ -214,7 +214,7 @@ All events are `EventCallback<SortableEventArgs<TItem>>`.
 | `OnSort` | Any change to a list (add / remove / update). |
 | `OnChange` | The dragged item changes position during the drag. |
 
-### `SortableEventArgs<TItem>`
+### `BlazorSortableEventArgs<TItem>`
 
 | Member | Type | Description |
 |---|---|---|
@@ -227,7 +227,7 @@ All events are `EventCallback<SortableEventArgs<TItem>>`.
 | `ToGroup` | `string?` | Group of the destination list. |
 | `CrossedLists` | `bool` | `true` when the item moved between lists. |
 
-### `SortablePull`
+### `BlazorSortablePull`
 
 | Value | Meaning |
 |---|---|

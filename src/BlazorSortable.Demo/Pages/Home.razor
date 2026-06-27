@@ -1,4 +1,4 @@
-﻿@page "/"
+@page "/"
 
 <PageTitle>BlazorSortable — Simple list</PageTitle>
 
@@ -9,18 +9,18 @@
         and the bound list updates with <code>@@bind-Items</code>.
     </p>
 
-    <Sortable Items="items" TItem="string"
+    <BlazorSortable Items="items" TItem="string"
               Class="demo-list" ItemClass="demo-item" GhostClass="demo-ghost">
         <ItemTemplate Context="item">
             @item
         </ItemTemplate>
-    </Sortable>
+    </BlazorSortable>
 
     <p class="mt-3"><strong>Order:</strong> @string.Join(", ", items)</p>
 
-    <pre class="mt-3"><code>&lt;Sortable Items="items" TItem="string"&gt;
+    <pre class="mt-3"><code>&lt;BlazorSortable Items="items" TItem="string"&gt;
     &lt;ItemTemplate Context="item"&gt;@@item&lt;/ItemTemplate&gt;
-&lt;/Sortable&gt;</code></pre>
+&lt;/BlazorSortable&gt;</code></pre>
 </div>
 
 @code {

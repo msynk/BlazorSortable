@@ -10,14 +10,14 @@ namespace BlazorSortable;
 /// Reorder items within a list or drag them between lists that share a <see cref="Group"/>.
 /// </summary>
 /// <typeparam name="TItem">The type of the bound items.</typeparam>
-public partial class Sortable<TItem> : ISortableZone, IAsyncDisposable
+public partial class BlazorSortable<TItem> : IBlazorSortableZone, IAsyncDisposable
 {
     private ElementReference _listElement;
     private IJSObjectReference? _module;
     private bool _handleInitialized;
     private bool _playFlipOnRender;
 
-    [Inject] private SortableService Service { get; set; } = default!;
+    [Inject] private BlazorSortableService Service { get; set; } = default!;
     [Inject] private IJSRuntime JS { get; set; } = default!;
 
     /// <summary>The list of items to display and reorder. Bind with <c>@bind-Items</c>.</summary>
@@ -39,7 +39,7 @@ public partial class Sortable<TItem> : ISortableZone, IAsyncDisposable
     [Parameter] public string? Group { get; set; }
 
     /// <summary>Controls how items may be dragged out of this list.</summary>
-    [Parameter] public SortablePull Pull { get; set; } = SortablePull.Move;
+    [Parameter] public BlazorSortablePull Pull { get; set; } = BlazorSortablePull.Move;
 
     /// <summary>Whether items from other lists in the group may be dropped here.</summary>
     [Parameter] public bool Put { get; set; } = true;
@@ -63,7 +63,7 @@ public partial class Sortable<TItem> : ISortableZone, IAsyncDisposable
     /// <summary>Predicate returning <c>true</c> for items that must not be dragged.</summary>
     [Parameter] public Func<TItem, bool>? Filter { get; set; }
 
-    /// <summary>Factory used to copy an item when <see cref="Pull"/> is <see cref="SortablePull.Clone"/>.</summary>
+    /// <summary>Factory used to copy an item when <see cref="Pull"/> is <see cref="BlazorSortablePull.Clone"/>.</summary>
     [Parameter] public Func<TItem, TItem>? Clone { get; set; }
 
     /// <summary>Extra CSS classes for the list container.</summary>
@@ -88,13 +88,13 @@ public partial class Sortable<TItem> : ISortableZone, IAsyncDisposable
     [Parameter] public string ChosenClass { get; set; } = "sortable-chosen";
 
     // Lifecycle events (mirroring SortableJS).
-    [Parameter] public EventCallback<SortableEventArgs<TItem>> OnStart { get; set; }
-    [Parameter] public EventCallback<SortableEventArgs<TItem>> OnEnd { get; set; }
-    [Parameter] public EventCallback<SortableEventArgs<TItem>> OnAdd { get; set; }
-    [Parameter] public EventCallback<SortableEventArgs<TItem>> OnRemove { get; set; }
-    [Parameter] public EventCallback<SortableEventArgs<TItem>> OnUpdate { get; set; }
-    [Parameter] public EventCallback<SortableEventArgs<TItem>> OnSort { get; set; }
-    [Parameter] public EventCallback<SortableEventArgs<TItem>> OnChange { get; set; }
+    [Parameter] public EventCallback<BlazorSortableEventArgs<TItem>> OnStart { get; set; }
+    [Parameter] public EventCallback<BlazorSortableEventArgs<TItem>> OnEnd { get; set; }
+    [Parameter] public EventCallback<BlazorSortableEventArgs<TItem>> OnAdd { get; set; }
+    [Parameter] public EventCallback<BlazorSortableEventArgs<TItem>> OnRemove { get; set; }
+    [Parameter] public EventCallback<BlazorSortableEventArgs<TItem>> OnUpdate { get; set; }
+    [Parameter] public EventCallback<BlazorSortableEventArgs<TItem>> OnSort { get; set; }
+    [Parameter] public EventCallback<BlazorSortableEventArgs<TItem>> OnChange { get; set; }
 
     private static readonly EqualityComparer<TItem> Comparer = EqualityComparer<TItem>.Default;
 
@@ -129,7 +129,7 @@ public partial class Sortable<TItem> : ISortableZone, IAsyncDisposable
             {
                 // Previewed as the ghost in another list. For a move, hide the original here
                 // (same as within-list). For a clone, the original must stay put and visible.
-                if (ctx.PullMode != SortablePull.Clone)
+                if (ctx.PullMode != BlazorSortablePull.Clone)
                     classes += " sortable-hidden";
             }
             else
@@ -183,7 +183,7 @@ public partial class Sortable<TItem> : ISortableZone, IAsyncDisposable
         }
         Service.Context = null;
 
-        var ctx = new DragContext
+        var ctx = new BlazorSortableDragContext
         {
             Item = item!,
             OriginalItem = item!,
@@ -194,7 +194,7 @@ public partial class Sortable<TItem> : ISortableZone, IAsyncDisposable
         };
         Service.Context = ctx;
 
-        await RaiseEventAsync(SortableEventType.Start, new SortableMoveInfo
+        await RaiseEventAsync(BlazorSortableEventType.Start, new BlazorSortableMoveInfo
         {
             Item = item!,
             OldIndex = ctx.OldIndex,
@@ -228,7 +228,7 @@ public partial class Sortable<TItem> : ISortableZone, IAsyncDisposable
             Items.Insert(insertAt, dragged);
             RequestFlipPlay();
 
-            await RaiseEventAsync(SortableEventType.Change, new SortableMoveInfo
+            await RaiseEventAsync(BlazorSortableEventType.Change, new BlazorSortableMoveInfo
             {
                 Item = dragged!,
                 OldIndex = from,
@@ -242,7 +242,7 @@ public partial class Sortable<TItem> : ISortableZone, IAsyncDisposable
         {
             // Dragged in from another list: show a placeholder where it would land.
             // The actual item is not moved until drop, so the native drag stays alive.
-            if (!CanReceiveFrom(ctx.Source) || ctx.Source.PullMode == SortablePull.None) return;
+            if (!CanReceiveFrom(ctx.Source) || ctx.Source.PullMode == BlazorSortablePull.None) return;
             int index = Items.IndexOf(overItem);
             if (index < 0) index = Count;
             await ShowPlaceholderAsync(ctx, index);
@@ -254,14 +254,14 @@ public partial class Sortable<TItem> : ISortableZone, IAsyncDisposable
         var ctx = Service.Context;
         if (ctx is null || Disabled || Items is null) return;
         if (ReferenceEquals(ctx.CurrentZone, this)) return; // home list handles its own items
-        if (!CanReceiveFrom(ctx.Source) || ctx.Source.PullMode == SortablePull.None) return;
+        if (!CanReceiveFrom(ctx.Source) || ctx.Source.PullMode == BlazorSortablePull.None) return;
 
         // Over the empty area / padding: preview an append at the end.
         await ShowPlaceholderAsync(ctx, Count);
     }
 
     /// <summary>Shows (or moves) the drop placeholder in this zone at <paramref name="index"/>.</summary>
-    private async Task ShowPlaceholderAsync(DragContext ctx, int index)
+    private async Task ShowPlaceholderAsync(BlazorSortableDragContext ctx, int index)
     {
         if (ReferenceEquals(ctx.PlaceholderZone, this) && ctx.PlaceholderIndex == index) return;
 
@@ -291,7 +291,7 @@ public partial class Sortable<TItem> : ISortableZone, IAsyncDisposable
     }
 
     /// <summary>Removes the placeholder from whichever zone is currently showing it.</summary>
-    private static async Task ClearPlaceholderAsync(DragContext ctx)
+    private static async Task ClearPlaceholderAsync(BlazorSortableDragContext ctx)
     {
         var ph = ctx.PlaceholderZone;
         if (ph is null) return;
@@ -336,7 +336,7 @@ public partial class Sortable<TItem> : ISortableZone, IAsyncDisposable
     }
 
     /// <summary>Moves the dragged item from its source list into this list at the placeholder index.</summary>
-    private async Task CommitPlaceholderAsync(DragContext ctx)
+    private async Task CommitPlaceholderAsync(BlazorSortableDragContext ctx)
     {
         if (Items is null) return;
 
@@ -348,7 +348,7 @@ public partial class Sortable<TItem> : ISortableZone, IAsyncDisposable
         await CaptureFlipAsync();
 
         object moving;
-        if (ctx.PullMode == SortablePull.Clone)
+        if (ctx.PullMode == BlazorSortablePull.Clone)
         {
             moving = ctx.Source.CloneItem(ctx.OriginalItem);
             ctx.HasCloned = true;
@@ -371,7 +371,7 @@ public partial class Sortable<TItem> : ISortableZone, IAsyncDisposable
         await RefreshAsync();
     }
 
-    private async Task FinalizeAsync(DragContext ctx)
+    private async Task FinalizeAsync(BlazorSortableDragContext ctx)
     {
         if (ctx.Finished) return;
         ctx.Finished = true;
@@ -379,7 +379,7 @@ public partial class Sortable<TItem> : ISortableZone, IAsyncDisposable
         var to = ctx.CurrentZone;
         var placeholderZone = ctx.PlaceholderZone;
         int newIndex = to.IndexOf(ctx.Item);
-        var info = new SortableMoveInfo
+        var info = new BlazorSortableMoveInfo
         {
             Item = ctx.Item,
             OldIndex = ctx.OldIndex,
@@ -392,20 +392,20 @@ public partial class Sortable<TItem> : ISortableZone, IAsyncDisposable
         {
             if (newIndex != ctx.OldIndex)
             {
-                await ctx.Source.RaiseEventAsync(SortableEventType.Update, info);
-                await ctx.Source.RaiseEventAsync(SortableEventType.Sort, info);
+                await ctx.Source.RaiseEventAsync(BlazorSortableEventType.Update, info);
+                await ctx.Source.RaiseEventAsync(BlazorSortableEventType.Sort, info);
             }
         }
         else
         {
-            if (ctx.PullMode != SortablePull.Clone)
-                await ctx.Source.RaiseEventAsync(SortableEventType.Remove, info);
-            await to.RaiseEventAsync(SortableEventType.Add, info);
-            await ctx.Source.RaiseEventAsync(SortableEventType.Sort, info);
-            await to.RaiseEventAsync(SortableEventType.Sort, info);
+            if (ctx.PullMode != BlazorSortablePull.Clone)
+                await ctx.Source.RaiseEventAsync(BlazorSortableEventType.Remove, info);
+            await to.RaiseEventAsync(BlazorSortableEventType.Add, info);
+            await ctx.Source.RaiseEventAsync(BlazorSortableEventType.Sort, info);
+            await to.RaiseEventAsync(BlazorSortableEventType.Sort, info);
         }
 
-        await ctx.Source.RaiseEventAsync(SortableEventType.End, info);
+        await ctx.Source.RaiseEventAsync(BlazorSortableEventType.End, info);
 
         Service.Context = null;
         ctx.PlaceholderZone = null;
@@ -425,21 +425,21 @@ public partial class Sortable<TItem> : ISortableZone, IAsyncDisposable
         }
     }
 
-    // ----- ISortableZone --------------------------------------------------
+    // ----- IBlazorSortableZone --------------------------------------------
 
-    string ISortableZone.Id => Id;
-    string? ISortableZone.GroupName => Group;
-    bool ISortableZone.AllowSort => Sort;
-    bool ISortableZone.IsDisabled => Disabled;
-    SortablePull ISortableZone.PullMode => Pull;
+    string IBlazorSortableZone.Id => Id;
+    string? IBlazorSortableZone.GroupName => Group;
+    bool IBlazorSortableZone.AllowSort => Sort;
+    bool IBlazorSortableZone.IsDisabled => Disabled;
+    BlazorSortablePull IBlazorSortableZone.PullMode => Pull;
 
     private bool AllowSort => Sort;
 
     public int Count => Items?.Count ?? 0;
 
-    bool ISortableZone.CanReceiveFrom(ISortableZone source) => CanReceiveFrom(source);
+    bool IBlazorSortableZone.CanReceiveFrom(IBlazorSortableZone source) => CanReceiveFrom(source);
 
-    private bool CanReceiveFrom(ISortableZone source)
+    private bool CanReceiveFrom(IBlazorSortableZone source)
     {
         if (Disabled || !Put) return false;
         if (ReferenceEquals(source, this)) return true;
@@ -447,24 +447,24 @@ public partial class Sortable<TItem> : ISortableZone, IAsyncDisposable
         return string.Equals(Group, source.GroupName, StringComparison.Ordinal);
     }
 
-    int ISortableZone.IndexOf(object item) => Items is null ? -1 : Items.IndexOf((TItem)item);
+    int IBlazorSortableZone.IndexOf(object item) => Items is null ? -1 : Items.IndexOf((TItem)item);
 
-    object ISortableZone.ItemAt(int index) => Items![index]!;
+    object IBlazorSortableZone.ItemAt(int index) => Items![index]!;
 
-    void ISortableZone.Insert(int index, object item) => Insert(index, item);
+    void IBlazorSortableZone.Insert(int index, object item) => Insert(index, item);
 
     private void Insert(int index, object item) => Items?.Insert(index, (TItem)item);
 
-    void ISortableZone.RemoveAt(int index) => Items?.RemoveAt(index);
+    void IBlazorSortableZone.RemoveAt(int index) => Items?.RemoveAt(index);
 
-    object ISortableZone.CloneItem(object item)
+    object IBlazorSortableZone.CloneItem(object item)
     {
         if (Clone is not null) return Clone((TItem)item)!;
         if (item is ICloneable cloneable) return cloneable.Clone();
         return item; // value types / strings: safe to share
     }
 
-    Task ISortableZone.CaptureFlipAsync() => CaptureFlipAsync();
+    Task IBlazorSortableZone.CaptureFlipAsync() => CaptureFlipAsync();
 
     private async Task CaptureFlipAsync()
     {
@@ -475,14 +475,14 @@ public partial class Sortable<TItem> : ISortableZone, IAsyncDisposable
         }
     }
 
-    void ISortableZone.RequestFlipPlay() => RequestFlipPlay();
+    void IBlazorSortableZone.RequestFlipPlay() => RequestFlipPlay();
 
     private void RequestFlipPlay()
     {
         if (Animation > 0) _playFlipOnRender = true;
     }
 
-    async Task ISortableZone.ClearFlipAsync()
+    async Task IBlazorSortableZone.ClearFlipAsync()
     {
         if (_module is not null)
         {
@@ -491,7 +491,7 @@ public partial class Sortable<TItem> : ISortableZone, IAsyncDisposable
         }
     }
 
-    async Task ISortableZone.RefreshAsync() => await RefreshAsync();
+    async Task IBlazorSortableZone.RefreshAsync() => await RefreshAsync();
 
     private async Task RefreshAsync()
     {
@@ -500,12 +500,12 @@ public partial class Sortable<TItem> : ISortableZone, IAsyncDisposable
             await ItemsChanged.InvokeAsync(Items);
     }
 
-    async Task ISortableZone.RaiseEventAsync(SortableEventType type, SortableMoveInfo info)
+    async Task IBlazorSortableZone.RaiseEventAsync(BlazorSortableEventType type, BlazorSortableMoveInfo info)
         => await RaiseEventAsync(type, info);
 
-    private Task RaiseEventAsync(SortableEventType type, SortableMoveInfo info)
+    private Task RaiseEventAsync(BlazorSortableEventType type, BlazorSortableMoveInfo info)
     {
-        var args = new SortableEventArgs<TItem>
+        var args = new BlazorSortableEventArgs<TItem>
         {
             Item = (TItem)info.Item,
             OldIndex = info.OldIndex,
@@ -518,13 +518,13 @@ public partial class Sortable<TItem> : ISortableZone, IAsyncDisposable
 
         return type switch
         {
-            SortableEventType.Start => OnStart.InvokeAsync(args),
-            SortableEventType.End => OnEnd.InvokeAsync(args),
-            SortableEventType.Add => OnAdd.InvokeAsync(args),
-            SortableEventType.Remove => OnRemove.InvokeAsync(args),
-            SortableEventType.Update => OnUpdate.InvokeAsync(args),
-            SortableEventType.Sort => OnSort.InvokeAsync(args),
-            SortableEventType.Change => OnChange.InvokeAsync(args),
+            BlazorSortableEventType.Start => OnStart.InvokeAsync(args),
+            BlazorSortableEventType.End => OnEnd.InvokeAsync(args),
+            BlazorSortableEventType.Add => OnAdd.InvokeAsync(args),
+            BlazorSortableEventType.Remove => OnRemove.InvokeAsync(args),
+            BlazorSortableEventType.Update => OnUpdate.InvokeAsync(args),
+            BlazorSortableEventType.Sort => OnSort.InvokeAsync(args),
+            BlazorSortableEventType.Change => OnChange.InvokeAsync(args),
             _ => Task.CompletedTask
         };
     }

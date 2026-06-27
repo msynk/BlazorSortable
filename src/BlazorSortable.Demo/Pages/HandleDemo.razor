@@ -9,12 +9,12 @@
         handle icon. The rest of the row stays selectable and clickable.
     </p>
 
-    <Sortable @bind-Items="items" TItem="string" Handle=".handle"
+    <BlazorSortable @bind-Items="items" TItem="string" Handle=".handle"
               Class="demo-list" ItemClass="demo-item" GhostClass="demo-ghost">
         <ItemTemplate Context="item">
             <span class="handle">☰</span>@item
         </ItemTemplate>
-    </Sortable>
+    </BlazorSortable>
 
     <p class="mt-3"><strong>Order:</strong> @string.Join(", ", items)</p>
 </div>

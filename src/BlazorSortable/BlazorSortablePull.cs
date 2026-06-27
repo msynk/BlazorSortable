@@ -1,10 +1,10 @@
 namespace BlazorSortable;
 
 /// <summary>
-/// Controls whether (and how) items may be dragged out of a <see cref="Sortable{TItem}"/> list,
+/// Controls whether (and how) items may be dragged out of a <see cref="BlazorSortable{TItem}"/> list,
 /// mirroring the <c>group.pull</c> option of SortableJS.
 /// </summary>
-public enum SortablePull
+public enum BlazorSortablePull
 {
     /// <summary>Items can be moved out of the list (default).</summary>
     Move,
