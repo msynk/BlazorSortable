@@ -33,6 +33,22 @@ internal sealed class BlazorSortableDragContext
     /// <summary>Index within <see cref="PlaceholderZone"/> where the item would be inserted.</summary>
     public int PlaceholderIndex { get; set; }
 
+    /// <summary>
+    /// In swap mode, the zone that holds the item currently highlighted as the swap
+    /// target (the item the dragged one will trade places with on drop), if any.
+    /// </summary>
+    public IBlazorSortableZone? SwapTargetZone { get; set; }
+
+    /// <summary>In swap mode, the item highlighted as the swap target, if any.</summary>
+    public object? SwapTargetItem { get; set; }
+
+    /// <summary>
+    /// In multi-drag mode, the full ordered set of items being dragged together
+    /// (including the primary <see cref="Item"/>), in source-list order. <c>null</c>
+    /// for a single-item drag.
+    /// </summary>
+    public List<object>? MultiItems { get; set; }
+
     /// <summary>Guards against finalizing the same drag twice (drop + dragend).</summary>
     public bool Finished { get; set; }
 }

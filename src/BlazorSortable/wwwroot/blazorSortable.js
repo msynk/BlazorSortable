@@ -135,6 +135,23 @@ export function dropIndex(listEl, x, y, swapThreshold, invertSwap, invertedSwapT
     return -1; // inverted (centre) dead zone
 }
 
+// Index (0-based, counting only visible sortable items) of the item whose box
+// is directly under the pointer, or -1 when the pointer is over no item. Used by
+// swap mode to pick the item the dragged one will trade places with.
+export function itemIndexAt(listEl, x, y) {
+    if (!listEl) return -1;
+    let i = 0;
+    for (const child of listEl.children) {
+        if (!child.hasAttribute('data-sortable-item')) continue;
+        if (child.hasAttribute('data-sortable-placeholder')) continue;
+        const r = child.getBoundingClientRect();
+        if (r.width === 0 && r.height === 0) continue; // hidden (e.g. the source ghost)
+        if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) return i;
+        i++;
+    }
+    return -1;
+}
+
 // --- FLIP animation ------------------------------------------------------
 
 // Snapshot the current on-screen position of every item. Reading

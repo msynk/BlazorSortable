@@ -10,6 +10,8 @@ BlazorSortable is built on the browser's native HTML5 drag-and-drop events wired
 - Live reordering as you drag, with smooth FLIP slide animations
 - Drag between lists with a ghost preview that shows exactly where the item will land
 - `clone` and `move` pull modes, plus per-list `put`/`sort`/`disabled` control
+- Swap mode (the SortableJS Swap plugin): drag an item onto another to trade their places
+- Multi-drag (the SortableJS MultiDrag plugin): select several items and drag them together
 - Drag handles, item filters, and per-item styling
 - Works with any layout (vertical lists, grids, nested lists)
 - Two-way binding with `@bind-Items`
@@ -185,6 +187,35 @@ The swap zone is the part of an item that triggers a swap when the dragged item 
 </BlazorSortable>
 ```
 
+### Swap mode (Swap plugin)
+
+Set `Swap="true"` to trade places instead of sorting. The list stays still while you
+drag; the item under the pointer is highlighted with `SwapClass` (default
+`sortable-swap-highlight`), and on drop the dragged item and that item swap positions.
+Swapping works within a single list and between lists that share a `Group`.
+
+```razor
+<BlazorSortable @bind-Items="items" TItem="string" Swap="true">
+    <ItemTemplate Context="item">@item</ItemTemplate>
+</BlazorSortable>
+```
+
+### Multi-drag (MultiDrag plugin)
+
+Set `MultiDrag="true"` to select multiple items and move them as a group. Click an item
+to toggle its selection (highlighted with `SelectedClass`, default `sortable-selected`);
+click again to deselect. Dragging any selected item moves the whole selection, which lands
+as a contiguous block in its original order. Dragging an unselected item clears the
+selection and moves just that one. Works within a list and across lists that share a `Group`.
+
+```razor
+<BlazorSortable @bind-Items="items" TItem="string" MultiDrag="true">
+    <ItemTemplate Context="item">@item</ItemTemplate>
+</BlazorSortable>
+```
+
+> Multi-drag operates in `Move` mode; combining it with clone mode falls back to moving a single item.
+
 ## API reference
 
 ### `BlazorSortable<TItem>` parameters
@@ -214,6 +245,10 @@ The swap zone is the part of an item that triggers a swap when the dragged item 
 | `ItemClassSelector` | `Func<TItem, string?>?` | `null` | Per-item class appended to the wrapper. |
 | `GhostClass` | `string` | `sortable-ghost` | Class on the dragged item / preview. |
 | `ChosenClass` | `string` | `sortable-chosen` | Class on the chosen item. |
+| `Swap` | `bool` | `false` | Trade item positions (Swap plugin) instead of sorting. |
+| `SwapClass` | `string` | `sortable-swap-highlight` | Class on the highlighted swap target while dragging in swap mode. |
+| `MultiDrag` | `bool` | `false` | Select multiple items and drag them together (MultiDrag plugin). |
+| `SelectedClass` | `string` | `sortable-selected` | Class on items in the multi-drag selection. |
 
 ### Events
 
@@ -263,13 +298,13 @@ All events are `EventCallback<BlazorSortableEventArgs<TItem>>`.
 dotnet run --project src/BlazorSortable.Demo
 ```
 
-Then open the URL shown in the console. The demo mirrors the SortableJS demo site: simple list, shared lists, cloning, disabling sorting, handle, filter, grid, swap thresholds, nested sortables, and an events log.
+Then open the URL shown in the console. The demo mirrors the SortableJS demo site: simple list, shared lists, cloning, disabling sorting, handle, filter, grid, swap thresholds, nested sortables, an events log, and a Plugins section with multi-drag and swap.
 
 ## Notes and limitations
 
 - Item identity must be unique within a list (Blazor `@key`). For clone mode, use a reference-type model and a `Clone` factory that returns distinct objects.
 - Cross-list movement is committed on drop (with a live placeholder preview), rather than physically moving the node between lists mid-drag.
-- Not yet implemented: the MultiDrag and Swap plugins, custom easing, and the `toArray`/`sort`/store helpers.
+- Not yet implemented: custom easing, and the `toArray`/`sort`/store helpers.
 - Targets .NET 9. Tested with Blazor WebAssembly; the design also works under Blazor Server (the drag state is scoped per circuit).
 
 ## License

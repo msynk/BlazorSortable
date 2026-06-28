@@ -184,7 +184,8 @@
 
 .demo-code pre {
     margin: 0.6rem 0 0;
-    background: #1e1e1e;
+    background: #eee;
+    border: 1px solid black;
     color: #d4d4d4;
     padding: 0.9rem 1rem;
     border-radius: 0.375rem;

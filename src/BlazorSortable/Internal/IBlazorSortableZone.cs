@@ -22,6 +22,9 @@ internal interface IBlazorSortableZone
     /// <summary>How items may be pulled out of this list.</summary>
     BlazorSortablePull PullMode { get; }
 
+    /// <summary>Whether this list trades item positions (Swap plugin) instead of sorting.</summary>
+    bool SwapMode { get; }
+
     /// <summary>Whether this list can receive items dragged from <paramref name="source"/>.</summary>
     bool CanReceiveFrom(IBlazorSortableZone source);
 
@@ -30,6 +33,12 @@ internal interface IBlazorSortableZone
     object ItemAt(int index);
     void Insert(int index, object item);
     void RemoveAt(int index);
+
+    /// <summary>Replaces the item at <paramref name="index"/> (used by swap mode).</summary>
+    void Replace(int index, object item);
+
+    /// <summary>Clears the multi-drag selection for this list.</summary>
+    void ClearSelection();
 
     /// <summary>Creates a copy of <paramref name="item"/> for clone-mode drags.</summary>
     object CloneItem(object item);

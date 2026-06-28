@@ -1,0 +1,82 @@
+@page "/multi-drag"
+
+<PageTitle>BlazorSortable — Multi-drag</PageTitle>
+
+<div class="demo-section">
+    <h1>Multi-drag</h1>
+    <p class="demo-lead">
+        With <code>MultiDrag="true"</code> you can click items to select several of them,
+        then drag any one of the selected items to move the whole group together. The
+        selection keeps its order and lands as a contiguous block where you drop it.
+        This mirrors the SortableJS
+        <a href="https://sortablejs.github.io/Sortable/#multi-drag" target="_blank" rel="noopener">multi-drag demo</a>.
+        Click an item to toggle its selection; click again to deselect.
+    </p>
+
+    <div class="demo-col-title">Single list</div>
+    <BlazorSortable @bind-Items="list" TItem="string" MultiDrag="true"
+                    Class="demo-list" ItemClass="demo-item" GhostClass="demo-ghost">
+        <ItemTemplate Context="item">@item</ItemTemplate>
+    </BlazorSortable>
+
+    <p class="mt-3"><strong>Order:</strong> @string.Join(", ", list)</p>
+
+    <div class="demo-col-title mt-4">Across two lists</div>
+    <div class="demo-columns">
+        <div class="demo-col">
+            <BlazorSortable @bind-Items="left" TItem="string" Group="multi-shared" MultiDrag="true"
+                            Class="demo-list" ItemClass="demo-item" GhostClass="demo-ghost">
+                <ItemTemplate Context="item">@item</ItemTemplate>
+            </BlazorSortable>
+        </div>
+        <div class="demo-col">
+            <BlazorSortable @bind-Items="right" TItem="string" Group="multi-shared" MultiDrag="true"
+                            Class="demo-list" ItemClass="demo-item tinted" GhostClass="demo-ghost">
+                <ItemTemplate Context="item">@item</ItemTemplate>
+            </BlazorSortable>
+        </div>
+    </div>
+
+    <p class="mt-3"><strong>Left:</strong> @string.Join(", ", left)</p>
+    <p><strong>Right:</strong> @string.Join(", ", right)</p>
+
+    <CodeSnippet>
+@@page "/multi-drag"
+
+&lt;BlazorSortable @@bind-Items="list" TItem="string" MultiDrag="true"
+                Class="demo-list" ItemClass="demo-item" GhostClass="demo-ghost"&gt;
+    &lt;ItemTemplate Context="item"&gt;@@item&lt;/ItemTemplate&gt;
+&lt;/BlazorSortable&gt;
+
+&lt;div class="demo-columns"&gt;
+    &lt;BlazorSortable @@bind-Items="left" TItem="string" Group="multi-shared" MultiDrag="true"
+                    Class="demo-list" ItemClass="demo-item" GhostClass="demo-ghost"&gt;
+        &lt;ItemTemplate Context="item"&gt;@@item&lt;/ItemTemplate&gt;
+    &lt;/BlazorSortable&gt;
+    &lt;BlazorSortable @@bind-Items="right" TItem="string" Group="multi-shared" MultiDrag="true"
+                    Class="demo-list" ItemClass="demo-item tinted" GhostClass="demo-ghost"&gt;
+        &lt;ItemTemplate Context="item"&gt;@@item&lt;/ItemTemplate&gt;
+    &lt;/BlazorSortable&gt;
+&lt;/div&gt;
+
+@@code {
+    private IList&lt;string&gt; list = new List&lt;string&gt;
+    {
+        "Item 1", "Item 2", "Item 3", "Item 4", "Item 5", "Item 6"
+    };
+
+    private IList&lt;string&gt; left = new List&lt;string&gt; { "Item 1", "Item 2", "Item 3", "Item 4" };
+    private IList&lt;string&gt; right = new List&lt;string&gt; { "Item A", "Item B", "Item C", "Item D" };
+}
+    </CodeSnippet>
+</div>
+
+@code {
+    private IList<string> list = new List<string>
+    {
+        "Item 1", "Item 2", "Item 3", "Item 4", "Item 5", "Item 6"
+    };
+
+    private IList<string> left = new List<string> { "Item 1", "Item 2", "Item 3", "Item 4" };
+    private IList<string> right = new List<string> { "Item A", "Item B", "Item C", "Item D" };
+}

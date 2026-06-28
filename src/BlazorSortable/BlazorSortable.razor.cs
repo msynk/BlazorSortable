@@ -113,6 +113,33 @@ public partial class BlazorSortable<TItem> : IBlazorSortableZone, IAsyncDisposab
     /// <summary>Class applied to the chosen item. Default <c>sortable-chosen</c>.</summary>
     [Parameter] public string ChosenClass { get; set; } = "sortable-chosen";
 
+    /// <summary>
+    /// Enables the Swap plugin behaviour: instead of sorting, the dragged item trades
+    /// places with the item it is dropped on. While dragging, the item under the
+    /// pointer is highlighted with <see cref="SwapClass"/>. Mirrors the SortableJS
+    /// <c>swap</c> option.
+    /// </summary>
+    [Parameter] public bool Swap { get; set; }
+
+    /// <summary>
+    /// Class applied to the item highlighted as the swap target while dragging in
+    /// swap mode. Mirrors the SortableJS <c>swapClass</c> option.
+    /// </summary>
+    [Parameter] public string SwapClass { get; set; } = "sortable-swap-highlight";
+
+    /// <summary>
+    /// Enables the MultiDrag plugin behaviour: click items to select several, then
+    /// drag any one of them to move the whole selection together. Mirrors the
+    /// SortableJS <c>multiDrag</c> option.
+    /// </summary>
+    [Parameter] public bool MultiDrag { get; set; }
+
+    /// <summary>
+    /// Class applied to items that are part of the multi-drag selection. Mirrors the
+    /// SortableJS <c>selectedClass</c> option.
+    /// </summary>
+    [Parameter] public string SelectedClass { get; set; } = "sortable-selected";
+
     // Lifecycle events (mirroring SortableJS).
     [Parameter] public EventCallback<BlazorSortableEventArgs<TItem>> OnStart { get; set; }
     [Parameter] public EventCallback<BlazorSortableEventArgs<TItem>> OnEnd { get; set; }
@@ -123,6 +150,9 @@ public partial class BlazorSortable<TItem> : IBlazorSortableZone, IAsyncDisposab
     [Parameter] public EventCallback<BlazorSortableEventArgs<TItem>> OnChange { get; set; }
 
     private static readonly EqualityComparer<TItem> Comparer = EqualityComparer<TItem>.Default;
+
+    // Items currently selected for multi-drag in this list.
+    private readonly HashSet<TItem> _selected = new();
 
     // Stable @key for the placeholder element so Blazor animates it instead of recreating it.
     private static readonly object PlaceholderKey = new();
@@ -163,6 +193,14 @@ public partial class BlazorSortable<TItem> : IBlazorSortableZone, IAsyncDisposab
                 classes += " " + GhostClass + " " + ChosenClass;
             }
         }
+        if (ctx is not null && ReferenceEquals(ctx.SwapTargetZone, this)
+            && ctx.SwapTargetItem is TItem swapTarget && Comparer.Equals(swapTarget, item)
+            && !string.IsNullOrWhiteSpace(SwapClass))
+        {
+            classes += " " + SwapClass;
+        }
+        if (MultiDrag && _selected.Contains(item) && !string.IsNullOrWhiteSpace(SelectedClass))
+            classes += " " + SelectedClass;
         if (Filter is not null && Filter(item)) classes += " sortable-filtered";
         return classes;
     }
@@ -197,6 +235,14 @@ public partial class BlazorSortable<TItem> : IBlazorSortableZone, IAsyncDisposab
 
     // ----- drag event handlers -------------------------------------------
 
+    /// <summary>Toggles an item's multi-drag selection when clicked (MultiDrag mode).</summary>
+    private void OnItemClick(TItem item)
+    {
+        if (!MultiDrag || Disabled || (Filter is not null && Filter(item))) return;
+        if (!_selected.Add(item)) _selected.Remove(item);
+        StateHasChanged();
+    }
+
     private async Task OnItemDragStart(TItem item)
     {
         if (Disabled || (Filter is not null && Filter(item))) return;
@@ -209,6 +255,23 @@ public partial class BlazorSortable<TItem> : IBlazorSortableZone, IAsyncDisposab
         }
         Service.Context = null;
 
+        // Multi-drag: dragging a selected item carries the whole selection; dragging an
+        // unselected item drops the selection and drags only that item (like SortableJS).
+        List<object>? block = null;
+        if (MultiDrag)
+        {
+            if (_selected.Contains(item) && Items is not null)
+            {
+                block = new List<object>();
+                foreach (var it in Items)
+                    if (_selected.Contains(it)) block.Add(it!);
+            }
+            else
+            {
+                _selected.Clear();
+            }
+        }
+
         var ctx = new BlazorSortableDragContext
         {
             Item = item!,
@@ -216,7 +279,8 @@ public partial class BlazorSortable<TItem> : IBlazorSortableZone, IAsyncDisposab
             Source = this,
             CurrentZone = this,
             OldIndex = Items?.IndexOf(item) ?? -1,
-            PullMode = Pull
+            PullMode = Pull,
+            MultiItems = block is { Count: > 1 } ? block : null
         };
         Service.Context = ctx;
 
@@ -241,6 +305,12 @@ public partial class BlazorSortable<TItem> : IBlazorSortableZone, IAsyncDisposab
     {
         var ctx = Service.Context;
         if (ctx is null || Disabled || Items is null) return;
+
+        if (Swap)
+        {
+            await UpdateSwapTargetAsync(ctx, e);
+            return;
+        }
 
         if (ReferenceEquals(ctx.CurrentZone, this))
             await ReorderWithinAsync(ctx, e);
@@ -337,6 +407,88 @@ public partial class BlazorSortable<TItem> : IBlazorSortableZone, IAsyncDisposab
         _ => "auto"
     };
 
+    // ----- swap mode (Swap plugin) ---------------------------------------
+
+    /// <summary>
+    /// Tracks the item under the pointer as the swap target while dragging in swap
+    /// mode. Nothing is moved until drop; only the highlight (<see cref="SwapClass"/>)
+    /// follows the pointer. Works within this list and across lists in the group.
+    /// </summary>
+    private async Task UpdateSwapTargetAsync(BlazorSortableDragContext ctx, DragEventArgs e)
+    {
+        var receiving = !ReferenceEquals(ctx.CurrentZone, this);
+
+        // Only highlight a target here if items from the source may land in this list,
+        // and never let an item land inside its own subtree.
+        if (receiving && (!CanReceiveFrom(ctx.Source) || ctx.Source.PullMode == BlazorSortablePull.None || await WouldNestAsync()))
+        {
+            await SetSwapTargetAsync(ctx, null, null);
+            return;
+        }
+
+        int index = await GetItemIndexAtAsync(e.ClientX, e.ClientY);
+        object? target = index >= 0 && index < Count && Items is not null ? Items[index] : null;
+
+        // The dragged item is not a valid swap target for itself.
+        if (target is TItem t && !receiving && ctx.Item is TItem dragged && Comparer.Equals(dragged, t))
+            target = null;
+
+        await SetSwapTargetAsync(ctx, target is null ? null : this, target);
+    }
+
+    private async Task SetSwapTargetAsync(BlazorSortableDragContext ctx, IBlazorSortableZone? zone, object? item)
+    {
+        if (ReferenceEquals(ctx.SwapTargetZone, zone)
+            && (item is null ? ctx.SwapTargetItem is null
+                             : ctx.SwapTargetItem is not null && Comparer.Equals((TItem)ctx.SwapTargetItem, (TItem)item)))
+            return;
+
+        var oldZone = ctx.SwapTargetZone;
+        ctx.SwapTargetZone = zone;
+        ctx.SwapTargetItem = item;
+
+        if (oldZone is not null && !ReferenceEquals(oldZone, this))
+            await oldZone.RefreshAsync();
+        StateHasChanged();
+    }
+
+    /// <summary>Trades the dragged item's slot with the highlighted swap target.</summary>
+    private async Task CommitSwapAsync(BlazorSortableDragContext ctx)
+    {
+        var fromZone = ctx.CurrentZone;
+        var toZone = ctx.SwapTargetZone!;
+        var dragged = ctx.Item;
+        var target = ctx.SwapTargetItem!;
+
+        int fromIndex = fromZone.IndexOf(dragged);
+        int toIndex = toZone.IndexOf(target);
+        if (fromIndex < 0 || toIndex < 0) return;
+
+        await fromZone.CaptureFlipAsync();
+        if (!ReferenceEquals(toZone, fromZone)) await toZone.CaptureFlipAsync();
+
+        fromZone.Replace(fromIndex, target);
+        toZone.Replace(toIndex, dragged);
+
+        ctx.CurrentZone = toZone;
+
+        fromZone.RequestFlipPlay();
+        await fromZone.RefreshAsync();
+        if (!ReferenceEquals(toZone, fromZone))
+        {
+            toZone.RequestFlipPlay();
+            await toZone.RefreshAsync();
+        }
+    }
+
+    private async Task<int> GetItemIndexAtAsync(double clientX, double clientY)
+    {
+        if (_disposed || _module is null) return -1;
+        try { return await _module.InvokeAsync<int>("itemIndexAt", _listElement, clientX, clientY); }
+        catch (JSDisconnectedException) { return -1; }
+        catch (ObjectDisposedException) { return -1; }
+    }
+
     /// <summary>Shows (or moves) the drop placeholder in this zone at <paramref name="index"/>.</summary>
     private async Task ShowPlaceholderAsync(BlazorSortableDragContext ctx, int index)
     {
@@ -404,10 +556,83 @@ public partial class BlazorSortable<TItem> : IBlazorSortableZone, IAsyncDisposab
         var ctx = Service.Context;
         if (ctx is null) return;
 
+        if (ctx.SwapTargetItem is not null && ctx.SwapTargetZone is not null)
+        {
+            await CommitSwapAsync(ctx);
+            await FinalizeSwapAsync(ctx);
+            return;
+        }
+
         if (ReferenceEquals(ctx.PlaceholderZone, this) && !ReferenceEquals(ctx.CurrentZone, this))
             await CommitPlaceholderAsync(ctx);
 
+        if (ctx.MultiItems is not null)
+            await CollectMultiAsync(ctx);
+
         await FinalizeAsync(ctx);
+    }
+
+    /// <summary>
+    /// Gathers the rest of the multi-drag selection next to the primary item, which has
+    /// already been positioned by the normal reorder / placeholder flow. The selected
+    /// block is removed from wherever it sits and re-inserted contiguously, in its
+    /// original order, at the primary's position in the destination list.
+    /// </summary>
+    private static async Task CollectMultiAsync(BlazorSortableDragContext ctx)
+    {
+        var block = ctx.MultiItems;
+        ctx.MultiItems = null; // guard against a second drop/dragend pass
+        if (block is null || block.Count <= 1) return;
+
+        // Clone mode for multi-drag is not supported; fall back to a single-item move.
+        if (ctx.PullMode == BlazorSortablePull.Clone) return;
+
+        var source = ctx.Source;
+        var target = ctx.CurrentZone;
+
+        await source.CaptureFlipAsync();
+        if (!ReferenceEquals(target, source)) await target.CaptureFlipAsync();
+
+        // Anchor: number of non-block items before the primary in the destination list.
+        int anchor = 0;
+        int primaryPos = target.IndexOf(ctx.Item);
+        for (int i = 0; i < primaryPos; i++)
+        {
+            if (!BlockContains(block, target.ItemAt(i))) anchor++;
+        }
+
+        RemoveBlockFrom(source, block);
+        if (!ReferenceEquals(target, source)) RemoveBlockFrom(target, block);
+
+        if (anchor > target.Count) anchor = target.Count;
+        for (int i = 0; i < block.Count; i++)
+            target.Insert(anchor + i, block[i]);
+
+        source.ClearSelection();
+
+        source.RequestFlipPlay();
+        await source.RefreshAsync();
+        if (!ReferenceEquals(target, source))
+        {
+            target.RequestFlipPlay();
+            await target.RefreshAsync();
+        }
+    }
+
+    private static bool BlockContains(List<object> block, object item)
+    {
+        foreach (var b in block)
+            if (EqualityComparer<object>.Default.Equals(b, item)) return true;
+        return false;
+    }
+
+    private static void RemoveBlockFrom(IBlazorSortableZone zone, List<object> block)
+    {
+        foreach (var b in block)
+        {
+            int idx = zone.IndexOf(b);
+            if (idx >= 0) zone.RemoveAt(idx);
+        }
     }
 
     /// <summary>Moves the dragged item from its source list into this list at the placeholder index.</summary>
@@ -500,13 +725,58 @@ public partial class BlazorSortable<TItem> : IBlazorSortableZone, IAsyncDisposab
         }
     }
 
-    // ----- IBlazorSortableZone --------------------------------------------
+    /// <summary>Finalizes a swap drag: raises lifecycle events and clears the drag state.</summary>
+    private async Task FinalizeSwapAsync(BlazorSortableDragContext ctx)
+    {
+        if (ctx.Finished) return;
+        ctx.Finished = true;
 
+        var from = ctx.Source;
+        var to = ctx.CurrentZone; // set to the swap target's zone in CommitSwapAsync
+        var info = new BlazorSortableMoveInfo
+        {
+            Item = ctx.Item,
+            OldIndex = ctx.OldIndex,
+            NewIndex = to.IndexOf(ctx.Item),
+            From = from,
+            To = to
+        };
+
+        if (ReferenceEquals(to, from))
+        {
+            if (info.NewIndex != ctx.OldIndex)
+            {
+                await from.RaiseEventAsync(BlazorSortableEventType.Update, info);
+                await from.RaiseEventAsync(BlazorSortableEventType.Sort, info);
+            }
+        }
+        else
+        {
+            await from.RaiseEventAsync(BlazorSortableEventType.Remove, info);
+            await to.RaiseEventAsync(BlazorSortableEventType.Add, info);
+            await from.RaiseEventAsync(BlazorSortableEventType.Sort, info);
+            await to.RaiseEventAsync(BlazorSortableEventType.Sort, info);
+        }
+
+        await from.RaiseEventAsync(BlazorSortableEventType.End, info);
+
+        Service.Context = null;
+        ctx.SwapTargetZone = null;
+        ctx.SwapTargetItem = null;
+
+        await from.ClearFlipAsync();
+        await to.ClearFlipAsync();
+        await from.RefreshAsync();
+        await to.RefreshAsync();
+    }
+
+    // ----- IBlazorSortableZone --------------------------------------------
     string IBlazorSortableZone.Id => Id;
     string? IBlazorSortableZone.GroupName => Group;
     bool IBlazorSortableZone.AllowSort => Sort;
     bool IBlazorSortableZone.IsDisabled => Disabled;
     BlazorSortablePull IBlazorSortableZone.PullMode => Pull;
+    bool IBlazorSortableZone.SwapMode => Swap;
 
     private bool AllowSort => Sort;
 
@@ -531,6 +801,18 @@ public partial class BlazorSortable<TItem> : IBlazorSortableZone, IAsyncDisposab
     private void Insert(int index, object item) => Items?.Insert(index, (TItem)item);
 
     void IBlazorSortableZone.RemoveAt(int index) => Items?.RemoveAt(index);
+
+    void IBlazorSortableZone.Replace(int index, object item)
+    {
+        if (Items is not null) Items[index] = (TItem)item;
+    }
+
+    void IBlazorSortableZone.ClearSelection()
+    {
+        if (_selected.Count == 0) return;
+        _selected.Clear();
+        StateHasChanged();
+    }
 
     object IBlazorSortableZone.CloneItem(object item)
     {
@@ -637,6 +919,12 @@ public partial class BlazorSortable<TItem> : IBlazorSortableZone, IAsyncDisposab
 
         if (Service.Context is { } ctx && ReferenceEquals(ctx.CurrentZone, this))
             Service.Context = null;
+
+        if (Service.Context is { } ctx2 && ReferenceEquals(ctx2.SwapTargetZone, this))
+        {
+            ctx2.SwapTargetZone = null;
+            ctx2.SwapTargetItem = null;
+        }
 
         if (_module is not null)
         {

@@ -31,6 +31,7 @@
                  class="@ItemCssClass(current)"
                  data-sortable-item="true"
                  draggable="@(draggable ? "true" : "false")"
+                 @onclick="() => OnItemClick(current)"
                  @ondragstart="() => OnItemDragStart(current)"
                  @ondragstart:stopPropagation="true"
                  @ondragend="OnItemDragEnd"
