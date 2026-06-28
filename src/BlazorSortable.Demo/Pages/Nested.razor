@@ -10,6 +10,49 @@
     </p>
 
     <NestedList Items="tree" />
+
+    <CodeSnippet>
+@@* ---------- NestedItem.cs ---------- *@@
+public sealed class NestedItem
+{
+    public required string Name { get; set; }
+    public List&lt;NestedItem&gt; Children { get; set; } = new();
+}
+
+@@* ---------- NestedList.razor (recursive component) ---------- *@@
+&lt;BlazorSortable Items="Items" TItem="NestedItem" Group="nested" SwapThreshold="0.65"
+          Class="nested-list" ItemClass="nested-item" GhostClass="demo-ghost"&gt;
+    &lt;ItemTemplate Context="item"&gt;
+        &lt;div&gt;@@item.Name&lt;/div&gt;
+        &lt;NestedList Items="item.Children" /&gt;
+    &lt;/ItemTemplate&gt;
+&lt;/BlazorSortable&gt;
+
+@@code {
+    [Parameter, EditorRequired] public List&lt;NestedItem&gt; Items { get; set; } = new();
+}
+
+@@* ---------- Nested.razor (page) ---------- *@@
+@@page "/nested"
+
+&lt;NestedList Items="tree" /&gt;
+
+@@code {
+    private List&lt;NestedItem&gt; tree = new()
+    {
+        new NestedItem
+        {
+            Name = "Item 1.1",
+            Children = new()
+            {
+                new NestedItem { Name = "Item 2.1" },
+                new NestedItem { Name = "Item 2.2" },
+            }
+        },
+        new NestedItem { Name = "Item 1.2" },
+    };
+}
+    </CodeSnippet>
 </div>
 
 @code {

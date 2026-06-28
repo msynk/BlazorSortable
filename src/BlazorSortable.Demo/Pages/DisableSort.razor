@@ -30,6 +30,31 @@
 
     <p class="mt-3"><strong>Source:</strong> @string.Join(", ", left)</p>
     <p><strong>Target:</strong> @string.Join(", ", right)</p>
+
+    <CodeSnippet>
+@@page "/disable-sort"
+
+&lt;div class="demo-columns"&gt;
+    &lt;div class="demo-col"&gt;
+        &lt;BlazorSortable @@bind-Items="left" TItem="string" Group="ds-shared"
+                  Sort="false" Put="false"
+                  Class="demo-list" ItemClass="demo-item" GhostClass="demo-ghost"&gt;
+            &lt;ItemTemplate Context="item"&gt;@@item&lt;/ItemTemplate&gt;
+        &lt;/BlazorSortable&gt;
+    &lt;/div&gt;
+    &lt;div class="demo-col"&gt;
+        &lt;BlazorSortable @@bind-Items="right" TItem="string" Group="ds-shared"
+                  Class="demo-list" ItemClass="demo-item tinted" GhostClass="demo-ghost"&gt;
+            &lt;ItemTemplate Context="item"&gt;@@item&lt;/ItemTemplate&gt;
+        &lt;/BlazorSortable&gt;
+    &lt;/div&gt;
+&lt;/div&gt;
+
+@@code {
+    private IList&lt;string&gt; left = new List&lt;string&gt; { "Item 1", "Item 2", "Item 3", "Item 4", "Item 5" };
+    private IList&lt;string&gt; right = new List&lt;string&gt; { "Item A", "Item B", "Item C" };
+}
+    </CodeSnippet>
 </div>
 
 @code {

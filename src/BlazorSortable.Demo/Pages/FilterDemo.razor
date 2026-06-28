@@ -18,6 +18,29 @@
     </BlazorSortable>
 
     <p class="mt-3"><strong>Order:</strong> @string.Join(", ", items)</p>
+
+    <CodeSnippet>
+@@page "/filter"
+
+&lt;BlazorSortable @@bind-Items="items" TItem="string"
+          Filter="IsLocked"
+          Class="demo-list" ItemClass="demo-item" GhostClass="demo-ghost"&gt;
+    &lt;ItemTemplate Context="item"&gt;
+        &lt;span class="@@(IsLocked(item) ? "filtered d-block m-n2 p-2 rounded" : "")"&gt;@@item&lt;/span&gt;
+    &lt;/ItemTemplate&gt;
+&lt;/BlazorSortable&gt;
+
+&lt;p&gt;&lt;strong&gt;Order:&lt;/strong&gt; @@string.Join(", ", items)&lt;/p&gt;
+
+@@code {
+    private IList&lt;string&gt; items = new List&lt;string&gt;
+    {
+        "Item 1", "Item 2", "Item 3", "Filtered (locked)", "Item 4", "Item 5"
+    };
+
+    private bool IsLocked(string item) =&gt; item.StartsWith("Filtered");
+}
+    </CodeSnippet>
 </div>
 
 @code {

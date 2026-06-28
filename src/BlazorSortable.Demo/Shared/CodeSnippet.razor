@@ -1,0 +1,21 @@
+@* Reusable, collapsible code snippet block used by the demo pages.
+   Pass the (HTML-escaped) code as child content. *@
+
+<div class="demo-code">
+    <button type="button" class="demo-code-toggle" @onclick="Toggle">
+        <span class="demo-code-caret">@(expanded ? "▾" : "▸")</span>
+        @(expanded ? "Hide code" : "Show code")
+    </button>
+    @if (expanded)
+    {
+        <pre><code>@ChildContent</code></pre>
+    }
+</div>
+
+@code {
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+
+    private bool expanded;
+
+    private void Toggle() => expanded = !expanded;
+}

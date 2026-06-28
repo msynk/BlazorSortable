@@ -17,6 +17,30 @@
     </BlazorSortable>
 
     <p class="mt-3"><strong>Order:</strong> @string.Join(", ", items)</p>
+
+    <CodeSnippet>
+@@page "/handle"
+
+&lt;BlazorSortable @@bind-Items="items" TItem="string" Handle=".handle"
+          Class="demo-list" ItemClass="demo-item" GhostClass="demo-ghost"&gt;
+    &lt;ItemTemplate Context="item"&gt;
+        &lt;span class="handle"&gt;☰&lt;/span&gt;@@item
+    &lt;/ItemTemplate&gt;
+&lt;/BlazorSortable&gt;
+
+&lt;p&gt;&lt;strong&gt;Order:&lt;/strong&gt; @@string.Join(", ", items)&lt;/p&gt;
+
+&lt;style&gt;
+    .handle { cursor: grab; color: #888; margin-right: 0.5rem; }
+&lt;/style&gt;
+
+@@code {
+    private IList&lt;string&gt; items = new List&lt;string&gt;
+    {
+        "Item 1", "Item 2", "Item 3", "Item 4", "Item 5", "Item 6"
+    };
+}
+    </CodeSnippet>
 </div>
 
 @code {
