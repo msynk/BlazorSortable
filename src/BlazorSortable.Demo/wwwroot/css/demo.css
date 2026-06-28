@@ -121,3 +121,36 @@
     max-height: 180px;
     overflow-y: auto;
 }
+
+/* Thresholds example. */
+.threshold-controls {
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+    padding: 0.9rem 1rem;
+    margin-bottom: 1rem;
+    background-color: #f8f9fa;
+    border: 1px solid rgba(0, 0, 0, 0.125);
+    border-radius: 0.375rem;
+}
+
+.threshold-controls label {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    font-size: 0.9rem;
+}
+
+.threshold-controls input[type="range"] {
+    flex: 1 1 auto;
+    max-width: 240px;
+}
+
+.threshold-controls .threshold-check {
+    gap: 0.4rem;
+}
+
+.threshold-grid {
+    grid-template-columns: repeat(3, 1fr);
+    max-width: 300px;
+}

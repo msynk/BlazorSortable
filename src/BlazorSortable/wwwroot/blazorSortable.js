@@ -6,6 +6,24 @@
 // listEl -> Map(childElement -> DOMRect) captured just before a reorder.
 const flipStore = new WeakMap();
 
+// --- Self-nesting guard --------------------------------------------------
+
+// Track the item element currently being dragged. ES modules are evaluated
+// once (the import is cached), so these document listeners are installed a
+// single time no matter how many lists are on the page.
+let draggedItemEl = null;
+document.addEventListener('dragstart', (e) => {
+    const t = e.target;
+    draggedItemEl = (t && t.closest) ? t.closest('[data-sortable-item]') : null;
+}, true);
+document.addEventListener('dragend', () => { draggedItemEl = null; }, true);
+
+// True when the given list lives inside the element being dragged — dropping
+// there would nest an item inside itself and detach its subtree from the tree.
+export function wouldNest(listEl) {
+    return !!(draggedItemEl && listEl && draggedItemEl !== listEl && draggedItemEl.contains(listEl));
+}
+
 // --- Handles -------------------------------------------------------------
 
 export function initHandle(listEl, handleSelector) {
@@ -31,12 +49,26 @@ export function initHandle(listEl, handleSelector) {
 // --- Drop position -------------------------------------------------------
 
 // Given a pointer position, return the index (0..count) at which the dragged
-// item should be inserted. Mirrors SortableJS: the pointer landing past an
-// item's midpoint inserts after it, so the very end of the list is reachable
-// by hovering the lower/right half of the last item. Orientation (vertical vs
-// horizontal) is inferred from the first two items, defaulting to vertical.
-export function dropIndex(listEl, x, y) {
+// item should be inserted, or -1 when the pointer is in a "dead zone" and the
+// current position should be kept.
+//
+// Mirrors the SortableJS swap-threshold model:
+//   - swapThreshold (0..1): the centred fraction of an item that is an active
+//     swap zone. Its upper/left half inserts before the item, its lower/right
+//     half inserts after it. The rest is a dead zone.
+//   - invertSwap + invertedSwapThreshold: instead of a centred zone, the active
+//     zones sit at the item's edges (used for "sort between items" behaviour).
+//
+// The target item is found by 2D hit-testing (the item whose box is under the
+// pointer), so grids work in every direction — not just along one row. The
+// `direction` axis is then used only to decide whether to land before or after
+// that item. When the pointer is not over any item (gaps / trailing padding),
+// it clamps to the nearest slot so the end of the list stays reachable.
+export function dropIndex(listEl, x, y, swapThreshold, invertSwap, invertedSwapThreshold, direction) {
     if (!listEl) return -1;
+
+    swapThreshold = swapThreshold > 0 ? swapThreshold : 1;
+    invertedSwapThreshold = invertedSwapThreshold > 0 ? invertedSwapThreshold : swapThreshold;
 
     const rects = [];
     for (const child of listEl.children) {
@@ -50,18 +82,57 @@ export function dropIndex(listEl, x, y) {
     const n = rects.length;
     if (n === 0) return 0;
 
-    const horizontal = n >= 2 &&
+    let horizontal;
+    if (direction === 'horizontal') horizontal = true;
+    else if (direction === 'vertical') horizontal = false;
+    else horizontal = n >= 2 &&
         Math.abs(rects[1].left - rects[0].left) > Math.abs(rects[1].top - rects[0].top);
 
-    for (let i = 0; i < n; i++) {
-        const r = rects[i];
-        const mid = horizontal ? r.left + r.width / 2 : r.top + r.height / 2;
-        const p = horizontal ? x : y;
-        if (p < mid) return i;
+    const axisPos = (r) => {
+        const s1 = horizontal ? r.left : r.top;
+        const s2 = horizontal ? r.right : r.bottom;
+        return { s1, s2, center: s1 + (s2 - s1) / 2, p: horizontal ? x : y };
+    };
+
+    // Item directly under the pointer (both axes) — this is what makes grids work.
+    let i = -1;
+    for (let k = 0; k < n; k++) {
+        const r = rects[k];
+        if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) { i = k; break; }
     }
 
-    // Past every midpoint: append at the end.
-    return n;
+    if (i === -1) {
+        // Not over any item (a gap or the trailing padding): clamp to the nearest
+        // slot in reading order. Always decisive so the list end stays reachable.
+        let best = Infinity;
+        for (let k = 0; k < n; k++) {
+            const r = rects[k];
+            const cx = Math.max(r.left, Math.min(x, r.right));
+            const cy = Math.max(r.top, Math.min(y, r.bottom));
+            const dx = x - cx, dy = y - cy;
+            const d = dx * dx + dy * dy;
+            if (d < best) { best = d; i = k; }
+        }
+        const { center, p } = axisPos(rects[i]);
+        return p < center ? i : i + 1;
+    }
+
+    const { s1, s2, center, p } = axisPos(rects[i]);
+    const len = s2 - s1;
+
+    if (!invertSwap) {
+        const margin = len * (1 - swapThreshold) / 2;
+        if (p > s1 + margin && p < s2 - margin) {
+            return p < center ? i : i + 1;
+        }
+        return -1; // edge dead zone
+    }
+
+    const edge = len * invertedSwapThreshold / 2;
+    if (p < s1 + edge || p > s2 - edge) {
+        return p > center ? i + 1 : i;
+    }
+    return -1; // inverted (centre) dead zone
 }
 
 // --- FLIP animation ------------------------------------------------------

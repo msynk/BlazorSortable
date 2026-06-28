@@ -1,0 +1,93 @@
+@page "/thresholds"
+
+<PageTitle>BlazorSortable — Thresholds</PageTitle>
+
+<div class="demo-section">
+    <h1>Swap thresholds</h1>
+    <p class="demo-lead">
+        The swap zone is the part of an item that, when dragged over, makes the dragged
+        item swap places with it. <code>SwapThreshold</code> sets how much of the item
+        (from the centre out) is an active swap zone — the rest is a "dead zone" that
+        does not trigger a swap. <code>InvertSwap</code> moves the active zones to the
+        item's edges instead, giving a "sort between items" feel. This mirrors the
+        <a href="https://sortablejs.github.io/Sortable/#thresholds" target="_blank" rel="noopener">SortableJS thresholds demo</a>.
+    </p>
+
+    <div class="threshold-controls">
+        <label>
+            SwapThreshold: <strong>@swapThreshold.ToString("0.00")</strong>
+            <input type="range" min="0.1" max="1" step="0.05"
+                   value="@swapThreshold" @oninput="OnSwapThresholdChanged" />
+        </label>
+
+        <label class="threshold-check">
+            <input type="checkbox" checked="@invertSwap" @onchange="OnInvertSwapChanged" />
+            InvertSwap
+        </label>
+
+        <label>
+            InvertedSwapThreshold: <strong>@invertedSwapThreshold.ToString("0.00")</strong>
+            <input type="range" min="0.1" max="1" step="0.05"
+                   value="@invertedSwapThreshold" @oninput="OnInvertedSwapThresholdChanged" />
+        </label>
+    </div>
+
+    <div class="demo-columns">
+        <div class="demo-col">
+            <div class="demo-col-title">Vertical list</div>
+            <BlazorSortable @bind-Items="list" TItem="string"
+                            SwapThreshold="swapThreshold"
+                            InvertSwap="invertSwap"
+                            InvertedSwapThreshold="invertedSwapThreshold"
+                            Direction="BlazorSortableDirection.Vertical"
+                            Class="demo-list" ItemClass="demo-item" GhostClass="demo-ghost">
+                <ItemTemplate Context="item">@item</ItemTemplate>
+            </BlazorSortable>
+        </div>
+        <div class="demo-col">
+            <div class="demo-col-title">Grid</div>
+            <BlazorSortable @bind-Items="grid" TItem="int"
+                            SwapThreshold="swapThreshold"
+                            InvertSwap="invertSwap"
+                            InvertedSwapThreshold="invertedSwapThreshold"
+                            Direction="BlazorSortableDirection.Horizontal"
+                            Class="demo-grid threshold-grid" GhostClass="demo-ghost">
+                <ItemTemplate Context="n">
+                    <div class="grid-square">@n</div>
+                </ItemTemplate>
+            </BlazorSortable>
+        </div>
+    </div>
+
+    <p class="mt-3"><strong>Order:</strong> @string.Join(", ", list)</p>
+</div>
+
+@code {
+    private double swapThreshold = 0.65;
+    private bool invertSwap;
+    private double invertedSwapThreshold = 0.65;
+
+    private void OnSwapThresholdChanged(ChangeEventArgs e)
+    {
+        if (double.TryParse(e.Value?.ToString(), System.Globalization.CultureInfo.InvariantCulture, out var v))
+            swapThreshold = v;
+    }
+
+    private void OnInvertedSwapThresholdChanged(ChangeEventArgs e)
+    {
+        if (double.TryParse(e.Value?.ToString(), System.Globalization.CultureInfo.InvariantCulture, out var v))
+            invertedSwapThreshold = v;
+    }
+
+    private void OnInvertSwapChanged(ChangeEventArgs e)
+    {
+        invertSwap = e.Value is bool b && b;
+    }
+
+    private IList<string> list = new List<string>
+    {
+        "Item 1", "Item 2", "Item 3", "Item 4", "Item 5", "Item 6"
+    };
+
+    private IList<int> grid = Enumerable.Range(1, 9).ToList();
+}

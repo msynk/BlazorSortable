@@ -16,6 +16,7 @@ public partial class BlazorSortable<TItem> : IBlazorSortableZone, IAsyncDisposab
     private IJSObjectReference? _module;
     private bool _handleInitialized;
     private bool _playFlipOnRender;
+    private bool _disposed;
 
     [Inject] private BlazorSortableService Service { get; set; } = default!;
     [Inject] private IJSRuntime JS { get; set; } = default!;
@@ -46,6 +47,31 @@ public partial class BlazorSortable<TItem> : IBlazorSortableZone, IAsyncDisposab
 
     /// <summary>Allow reordering within this list. Set to <c>false</c> to only allow dragging out.</summary>
     [Parameter] public bool Sort { get; set; } = true;
+
+    /// <summary>
+    /// The fraction (0–1) of an item that acts as its swap zone, mirroring the SortableJS
+    /// <c>swapThreshold</c> option. With the default <c>1</c> the whole item swaps; a smaller
+    /// value (e.g. <c>0.65</c>) leaves a dead zone near each edge so swaps feel less twitchy.
+    /// </summary>
+    [Parameter] public double SwapThreshold { get; set; } = 1;
+
+    /// <summary>
+    /// When <c>true</c> the swap zones sit at the item's edges instead of its centre, giving a
+    /// "sort between items" feel. Mirrors the SortableJS <c>invertSwap</c> option.
+    /// </summary>
+    [Parameter] public bool InvertSwap { get; set; }
+
+    /// <summary>
+    /// The fraction (0–1) of an item used for the inverted swap zone. Defaults to
+    /// <see cref="SwapThreshold"/> when left at <c>0</c>. Mirrors <c>invertedSwapThreshold</c>.
+    /// </summary>
+    [Parameter] public double InvertedSwapThreshold { get; set; }
+
+    /// <summary>
+    /// The axis to sort along. <see cref="BlazorSortableDirection.Auto"/> detects it from the
+    /// layout; set it explicitly for grids. Mirrors the SortableJS <c>direction</c> option.
+    /// </summary>
+    [Parameter] public BlazorSortableDirection Direction { get; set; } = BlazorSortableDirection.Auto;
 
     /// <summary>Disables all drag behaviour when <c>true</c>.</summary>
     [Parameter] public bool Disabled { get; set; }
@@ -205,28 +231,43 @@ public partial class BlazorSortable<TItem> : IBlazorSortableZone, IAsyncDisposab
         StateHasChanged();
     }
 
-    private async Task OnItemDragEnter(TItem overItem)
+    /// <summary>
+    /// Positions the drag preview as the pointer moves. Within the home list it
+    /// reorders the items live; over another list it shows a drop placeholder.
+    /// Driven by <c>dragover</c> (which bubbles up from the items) so the pointer
+    /// coordinates are available for swap-threshold hit testing.
+    /// </summary>
+    private async Task OnContainerDragOver(DragEventArgs e)
     {
         var ctx = Service.Context;
         if (ctx is null || Disabled || Items is null) return;
 
-        // Cross-list previews are positioned by the container's dragover handler,
-        // which has the pointer coordinates needed to land before or after an item.
-        if (!ReferenceEquals(ctx.CurrentZone, this)) return;
+        if (ReferenceEquals(ctx.CurrentZone, this))
+            await ReorderWithinAsync(ctx, e);
+        else
+            await PreviewFromOtherListAsync(ctx, e);
+    }
 
-        // Back over the home list: drop any cross-list placeholder and reorder for real.
-        await ClearPlaceholderAsync(ctx);
+    /// <summary>Reorders the home list as the dragged item moves over it.</summary>
+    private async Task ReorderWithinAsync(BlazorSortableDragContext ctx, DragEventArgs e)
+    {
+        // Returning to the home list: drop any cross-list placeholder first.
+        if (ctx.PlaceholderZone is not null)
+            await ClearPlaceholderAsync(ctx);
 
-        if (!AllowSort) return;
-        if (ctx.Item is not TItem dragged || Comparer.Equals(dragged, overItem)) return;
+        if (!AllowSort || ctx.Item is not TItem dragged || Items is null) return;
 
         int from = Items.IndexOf(dragged);
-        int to = Items.IndexOf(overItem);
-        if (from < 0 || to < 0) return;
+        if (from < 0) return;
+
+        int target = await GetDropIndexAsync(e.ClientX, e.ClientY);
+        if (target < 0) return; // dead zone: keep the current order
+
+        int insertAt = target > from ? target - 1 : target;
+        if (insertAt == from) return;
 
         await CaptureFlipAsync();
         Items.RemoveAt(from);
-        int insertAt = from < to ? Items.IndexOf(overItem) + 1 : Items.IndexOf(overItem);
         Items.Insert(insertAt, dragged);
         RequestFlipPlay();
 
@@ -241,35 +282,60 @@ public partial class BlazorSortable<TItem> : IBlazorSortableZone, IAsyncDisposab
         StateHasChanged();
     }
 
-    private Task OnContainerDragEnter(DragEventArgs e) => UpdateCrossListPlaceholderAsync(e);
-
     /// <summary>
-    /// Previews where an item dragged in from another list would land, based on the
-    /// pointer position. Driven by <c>dragover</c> (which bubbles up from the items)
-    /// so the placeholder can sit before or after any item — including past the last
-    /// one, which makes the end of the list reachable across lists.
+    /// Previews where an item dragged in from another list would land. The actual
+    /// item is not moved until drop, so the native drag stays alive. Hovering past
+    /// the last item's swap zone targets the end, making it reachable across lists.
     /// </summary>
-    private async Task UpdateCrossListPlaceholderAsync(DragEventArgs e)
+    private async Task PreviewFromOtherListAsync(BlazorSortableDragContext ctx, DragEventArgs e)
     {
-        var ctx = Service.Context;
-        if (ctx is null || Disabled || Items is null) return;
-        if (ReferenceEquals(ctx.CurrentZone, this)) return; // home list handles its own items
         if (!CanReceiveFrom(ctx.Source) || ctx.Source.PullMode == BlazorSortablePull.None) return;
 
+        // Refuse to receive an item into its own descendant list, which would
+        // detach the dragged subtree from the render tree (data corruption).
+        if (await WouldNestAsync()) return;
+
         int index = await GetDropIndexAsync(e.ClientX, e.ClientY);
-        if (index < 0 || index > Count) index = Count;
+        if (index < 0)
+        {
+            // Dead zone: keep an existing preview, or default to the end when first entering.
+            if (ReferenceEquals(ctx.PlaceholderZone, this)) return;
+            index = Count;
+        }
+        if (index > Count) index = Count;
         await ShowPlaceholderAsync(ctx, index);
     }
 
     private async Task<int> GetDropIndexAsync(double clientX, double clientY)
     {
-        if (_module is null) return Count;
+        if (_disposed || _module is null) return -1;
         try
         {
-            return await _module.InvokeAsync<int>("dropIndex", _listElement, clientX, clientY);
+            return await _module.InvokeAsync<int>("dropIndex", _listElement, clientX, clientY,
+                SwapThreshold, InvertSwap, InvertedSwapThreshold, DirectionValue);
         }
-        catch (JSDisconnectedException) { return Count; }
+        catch (JSDisconnectedException) { return -1; }
+        catch (ObjectDisposedException) { return -1; }
     }
+
+    /// <summary>
+    /// True when this list lives inside the DOM subtree of the item currently
+    /// being dragged, so receiving it here would nest the item inside itself.
+    /// </summary>
+    private async Task<bool> WouldNestAsync()
+    {
+        if (_disposed || _module is null) return false;
+        try { return await _module.InvokeAsync<bool>("wouldNest", _listElement); }
+        catch (JSDisconnectedException) { return false; }
+        catch (ObjectDisposedException) { return false; }
+    }
+
+    private string DirectionValue => Direction switch
+    {
+        BlazorSortableDirection.Horizontal => "horizontal",
+        BlazorSortableDirection.Vertical => "vertical",
+        _ => "auto"
+    };
 
     /// <summary>Shows (or moves) the drop placeholder in this zone at <paramref name="index"/>.</summary>
     private async Task ShowPlaceholderAsync(BlazorSortableDragContext ctx, int index)
@@ -323,8 +389,6 @@ public partial class BlazorSortable<TItem> : IBlazorSortableZone, IAsyncDisposab
     private Task OnItemDrop(DragEventArgs _) => DropAsync();
 
     private Task OnPlaceholderDrop(DragEventArgs _) => DropAsync();
-
-    private Task OnContainerDragOver(DragEventArgs e) => UpdateCrossListPlaceholderAsync(e);
 
     private Task OnContainerDrop(DragEventArgs _) => DropAsync();
 
@@ -479,11 +543,10 @@ public partial class BlazorSortable<TItem> : IBlazorSortableZone, IAsyncDisposab
 
     private async Task CaptureFlipAsync()
     {
-        if (Animation > 0 && _module is not null)
-        {
-            try { await _module.InvokeVoidAsync("capture", _listElement); }
-            catch (JSDisconnectedException) { }
-        }
+        if (_disposed || _module is null || Animation <= 0) return;
+        try { await _module.InvokeVoidAsync("capture", _listElement); }
+        catch (JSDisconnectedException) { }
+        catch (ObjectDisposedException) { }
     }
 
     void IBlazorSortableZone.RequestFlipPlay() => RequestFlipPlay();
@@ -495,11 +558,10 @@ public partial class BlazorSortable<TItem> : IBlazorSortableZone, IAsyncDisposab
 
     async Task IBlazorSortableZone.ClearFlipAsync()
     {
-        if (_module is not null)
-        {
-            try { await _module.InvokeVoidAsync("clear", _listElement); }
-            catch (JSDisconnectedException) { }
-        }
+        if (_disposed || _module is null) return;
+        try { await _module.InvokeVoidAsync("clear", _listElement); }
+        catch (JSDisconnectedException) { }
+        catch (ObjectDisposedException) { }
     }
 
     async Task IBlazorSortableZone.RefreshAsync() => await RefreshAsync();
@@ -544,6 +606,8 @@ public partial class BlazorSortable<TItem> : IBlazorSortableZone, IAsyncDisposab
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
+        if (_disposed) return;
+
         if (firstRender)
         {
             _module = await JS.InvokeAsync<IJSObjectReference>(
@@ -553,7 +617,9 @@ public partial class BlazorSortable<TItem> : IBlazorSortableZone, IAsyncDisposab
         if (!string.IsNullOrEmpty(Handle) && !_handleInitialized && _module is not null)
         {
             _handleInitialized = true;
-            await _module.InvokeVoidAsync("initHandle", _listElement, Handle);
+            try { await _module.InvokeVoidAsync("initHandle", _listElement, Handle); }
+            catch (JSDisconnectedException) { }
+            catch (ObjectDisposedException) { }
         }
 
         if (_playFlipOnRender && _module is not null)
@@ -561,11 +627,14 @@ public partial class BlazorSortable<TItem> : IBlazorSortableZone, IAsyncDisposab
             _playFlipOnRender = false;
             try { await _module.InvokeVoidAsync("play", _listElement, Animation); }
             catch (JSDisconnectedException) { }
+            catch (ObjectDisposedException) { }
         }
     }
 
     public async ValueTask DisposeAsync()
     {
+        _disposed = true;
+
         if (Service.Context is { } ctx && ReferenceEquals(ctx.CurrentZone, this))
             Service.Context = null;
 
@@ -573,6 +642,7 @@ public partial class BlazorSortable<TItem> : IBlazorSortableZone, IAsyncDisposab
         {
             try { await _module.DisposeAsync(); }
             catch (JSDisconnectedException) { }
+            catch (ObjectDisposedException) { }
         }
     }
 }

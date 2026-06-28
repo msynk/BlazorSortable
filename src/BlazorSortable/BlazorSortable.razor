@@ -10,9 +10,10 @@
      data-sortable-list="@Id"
      @ondragover="OnContainerDragOver"
      @ondragover:preventDefault="true"
-     @ondragenter="OnContainerDragEnter"
+     @ondragover:stopPropagation="true"
      @ondragenter:preventDefault="true"
-     @ondrop="OnContainerDrop">
+     @ondrop="OnContainerDrop"
+     @ondrop:stopPropagation="true">
     @if (Items is not null)
     {
         for (int i = 0; i < Items.Count; i++)
@@ -33,9 +34,6 @@
                  @ondragstart="() => OnItemDragStart(current)"
                  @ondragstart:stopPropagation="true"
                  @ondragend="OnItemDragEnd"
-                 @ondragenter="() => OnItemDragEnter(current)"
-                 @ondragenter:preventDefault="true"
-                 @ondragenter:stopPropagation="true"
                  @ondragover:preventDefault="true"
                  @ondrop="OnItemDrop"
                  @ondrop:stopPropagation="true">

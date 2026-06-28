@@ -174,6 +174,17 @@ Return `true` for items that must not be dragged.
 </BlazorSortable>
 ```
 
+### Swap thresholds
+
+The swap zone is the part of an item that triggers a swap when the dragged item moves over it. `SwapThreshold` sets how much of the item — measured from its centre — is an active zone; the rest is a dead zone that does not swap. `InvertSwap` moves the active zones to the item's edges for a "sort between items" feel. For grids, set `Direction` explicitly.
+
+```razor
+<BlazorSortable @bind-Items="items" TItem="string"
+          SwapThreshold="0.65" Direction="BlazorSortableDirection.Vertical">
+    <ItemTemplate Context="item">@item</ItemTemplate>
+</BlazorSortable>
+```
+
 ## API reference
 
 ### `BlazorSortable<TItem>` parameters
@@ -188,6 +199,10 @@ Return `true` for items that must not be dragged.
 | `Pull` | `BlazorSortablePull` | `Move` | How items leave this list: `Move`, `None`, or `Clone`. |
 | `Put` | `bool` | `true` | Whether items from the group may be dropped here. |
 | `Sort` | `bool` | `true` | Allow reordering within this list. |
+| `SwapThreshold` | `double` | `1` | Fraction (0–1) of an item that is an active swap zone, measured from its centre. |
+| `InvertSwap` | `bool` | `false` | Move the swap zones to the item's edges for a "sort between items" feel. |
+| `InvertedSwapThreshold` | `double` | `SwapThreshold` | Fraction (0–1) used for the inverted swap zone (`0` = same as `SwapThreshold`). |
+| `Direction` | `BlazorSortableDirection` | `Auto` | Sort axis: `Auto`, `Horizontal`, or `Vertical`. |
 | `Disabled` | `bool` | `false` | Disable all drag behaviour. |
 | `Animation` | `int` | `150` | Slide animation duration in ms (`0` disables). |
 | `Handle` | `string?` | `null` | CSS selector for a drag handle within each item. |
@@ -248,13 +263,13 @@ All events are `EventCallback<BlazorSortableEventArgs<TItem>>`.
 dotnet run --project src/BlazorSortable.Demo
 ```
 
-Then open the URL shown in the console. The demo mirrors the SortableJS demo site: simple list, shared lists, cloning, disabling sorting, handle, filter, grid, nested sortables, and an events log.
+Then open the URL shown in the console. The demo mirrors the SortableJS demo site: simple list, shared lists, cloning, disabling sorting, handle, filter, grid, swap thresholds, nested sortables, and an events log.
 
 ## Notes and limitations
 
 - Item identity must be unique within a list (Blazor `@key`). For clone mode, use a reference-type model and a `Clone` factory that returns distinct objects.
 - Cross-list movement is committed on drop (with a live placeholder preview), rather than physically moving the node between lists mid-drag.
-- Not yet implemented: swap thresholds / inverted swap, the MultiDrag and Swap plugins, custom easing, and the `toArray`/`sort`/store helpers.
+- Not yet implemented: the MultiDrag and Swap plugins, custom easing, and the `toArray`/`sort`/store helpers.
 - Targets .NET 9. Tested with Blazor WebAssembly; the design also works under Blazor Server (the drag state is scoped per circuit).
 
 ## License

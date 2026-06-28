@@ -1,7 +1,7 @@
 @* Recursive component: a sortable list whose items can each contain another sortable list.
    Every level shares the "nested" group, so items can move between branches. *@
 
-<BlazorSortable Items="Items" TItem="NestedItem" Group="nested"
+<BlazorSortable Items="Items" TItem="NestedItem" Group="nested" SwapThreshold="0.65"
           Class="nested-list" ItemClass="nested-item" GhostClass="demo-ghost">
     <ItemTemplate Context="item">
         <div>@item.Name</div>
