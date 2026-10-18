@@ -6,7 +6,7 @@ namespace BlazorSortable.Internal;
 /// </summary>
 internal sealed class BlazorSortableDragContext
 {
-    /// <summary>The data item currently being dragged (a clone in clone-mode).</summary>
+    /// <summary>The data item currently being dragged (the clone once a clone has been dropped).</summary>
     public required object Item { get; set; }
 
     /// <summary>The original item where the drag started (equals <see cref="Item"/> unless cloned).</summary>
@@ -24,8 +24,8 @@ internal sealed class BlazorSortableDragContext
     /// <summary>The effective pull mode resolved from the source list.</summary>
     public BlazorSortablePull PullMode { get; init; }
 
-    /// <summary>True once a clone has been spun off into another list.</summary>
-    public bool HasCloned { get; set; }
+    /// <summary>The source list's items when the drag began, to tell whether it really changed.</summary>
+    public required IReadOnlyList<object?> StartOrder { get; init; }
 
     /// <summary>The zone currently showing the drop placeholder (a target preview), if any.</summary>
     public IBlazorSortableZone? PlaceholderZone { get; set; }
@@ -48,6 +48,9 @@ internal sealed class BlazorSortableDragContext
     /// for a single-item drag.
     /// </summary>
     public List<object>? MultiItems { get; set; }
+
+    /// <summary>Zones whose bound list was modified by this drag.</summary>
+    public HashSet<IBlazorSortableZone> ChangedZones { get; } = new(ReferenceEqualityComparer.Instance);
 
     /// <summary>Guards against finalizing the same drag twice (drop + dragend).</summary>
     public bool Finished { get; set; }

@@ -9,8 +9,8 @@
         and the bound list updates with <code>@@bind-Items</code>.
     </p>
 
-    <BlazorSortable Items="items" TItem="string"
-              Class="demo-list" ItemClass="demo-item" GhostClass="demo-ghost">
+    <BlazorSortable @bind-Items="items" TItem="string"
+                    Class="demo-list" ItemClass="demo-item" GhostClass="demo-ghost">
         <ItemTemplate Context="item">
             @item
         </ItemTemplate>
@@ -21,8 +21,8 @@
     <CodeSnippet>
 @@page "/"
 
-&lt;BlazorSortable Items="items" TItem="string"
-          Class="demo-list" ItemClass="demo-item" GhostClass="demo-ghost"&gt;
+&lt;BlazorSortable @@bind-Items="items" TItem="string"
+                Class="demo-list" ItemClass="demo-item" GhostClass="demo-ghost"&gt;
     &lt;ItemTemplate Context="item"&gt;
         @@item
     &lt;/ItemTemplate&gt;
@@ -31,7 +31,7 @@
 &lt;p&gt;&lt;strong&gt;Order:&lt;/strong&gt; @@string.Join(", ", items)&lt;/p&gt;
 
 @@code {
-    private List&lt;string&gt; items = new()
+    private IList&lt;string&gt; items = new List&lt;string&gt;
     {
         "Item 1", "Item 2", "Item 3", "Item 4", "Item 5", "Item 6"
     };
@@ -40,7 +40,7 @@
 </div>
 
 @code {
-    private List<string> items = new()
+    private IList<string> items = new List<string>
     {
         "Item 1", "Item 2", "Item 3", "Item 4", "Item 5", "Item 6"
     };

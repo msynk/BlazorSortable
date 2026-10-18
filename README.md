@@ -2,7 +2,7 @@
 
 A native Blazor drag-and-drop sortable list, inspired by [SortableJS](https://github.com/SortableJS/Sortable).
 
-BlazorSortable is built on the browser's native HTML5 drag-and-drop events wired through Blazor event handlers — it is **not** a JavaScript-interop wrapper around the SortableJS library. The sorting engine lives in C#; a tiny JavaScript module is used only for drag handles and FLIP animations.
+BlazorSortable is built on the browser's native HTML5 drag-and-drop events wired through Blazor event handlers — it is **not** a JavaScript-interop wrapper around the SortableJS library. The sorting engine lives in C#; a tiny JavaScript module does only what needs the DOM: drag handles, measuring where the pointer is (swap thresholds), and FLIP animations.
 
 ## Features
 
@@ -95,9 +95,11 @@ Use `@bind-Items` to keep your own field in sync as items are reordered or moved
 
 > When using `@bind-Items`, declare the field as `IList<TItem>` so its type matches the parameter.
 
+The list is changed in place, so it must be mutable (e.g. `List<T>`). A read-only list such as an array is displayed and can be cloned from (`Pull="BlazorSortablePull.Clone"`), but it is never sorted, pulled from, or dropped into. `ItemsChanged` is raised once per drag, for each list whose contents actually changed.
+
 ### Shared lists (groups)
 
-Lists with the same `Group` can exchange items.
+Lists with the same `Group` can exchange items. While you drag over another list a placeholder shows where the item will land; as in SortableJS, once it is previewed there it stays there even if you release the mouse outside any list. Moving back over the original list takes it back.
 
 ```razor
 <BlazorSortable @bind-Items="left" TItem="string" Group="shared">
@@ -178,7 +180,7 @@ Return `true` for items that must not be dragged.
 
 ### Swap thresholds
 
-The swap zone is the part of an item that triggers a swap when the dragged item moves over it. `SwapThreshold` sets how much of the item — measured from its centre — is an active zone; the rest is a dead zone that does not swap. `InvertSwap` moves the active zones to the item's edges for a "sort between items" feel. For grids, set `Direction` explicitly.
+The swap zone is the part of an item that triggers a swap when the dragged item moves over it. `SwapThreshold` sets how much of the item — measured from its centre — is an active zone; the rest is a dead zone that does not swap. With the default `1` the dragged item swaps as soon as the pointer enters the next item; with `0.3` the pointer must reach its middle 30%. `InvertSwap` moves the active zones to the item's edges for a "sort between items" feel. The logic is a port of SortableJS's, including its protection against items of different sizes swapping back and forth. For grids, set `Direction` explicitly.
 
 ```razor
 <BlazorSortable @bind-Items="items" TItem="string"
@@ -214,7 +216,9 @@ selection and moves just that one. Works within a list and across lists that sha
 </BlazorSortable>
 ```
 
-> Multi-drag operates in `Move` mode; combining it with clone mode falls back to moving a single item.
+The event arguments' `Items` property lists every item moved by the drag.
+
+> Multi-drag operates in `Move` mode; combined with clone mode, dragging into another list clones only the dragged item.
 
 ## API reference
 
@@ -222,7 +226,7 @@ selection and moves just that one. Works within a list and across lists that sha
 
 | Parameter | Type | Default | Description |
 |---|---|---|---|
-| `Items` | `IList<TItem>?` | `null` | The items to display and reorder. Bind with `@bind-Items`. |
+| `Items` | `IList<TItem>?` | `null` | The items to display and reorder (a mutable list). Bind with `@bind-Items`. |
 | `ItemTemplate` | `RenderFragment<TItem>?` | `null` | Template rendered for each item. |
 | `ChildContent` | `RenderFragment?` | `null` | Extra content rendered after the items (e.g. an empty-state). |
 | `Id` | `string` | auto | Stable DOM id for the list. |
@@ -259,17 +263,20 @@ All events are `EventCallback<BlazorSortableEventArgs<TItem>>`.
 | `OnStart` | A drag begins. |
 | `OnEnd` | A drag ends (always, on the source list). |
 | `OnAdd` | An item is dropped in from another list. |
-| `OnRemove` | An item is moved out to another list. |
-| `OnUpdate` | An item's position changes within the same list. |
-| `OnSort` | Any change to a list (add / remove / update). |
-| `OnChange` | The dragged item changes position during the drag. |
+| `OnRemove` | An item is moved out to another list (not raised for a clone). |
+| `OnUpdate` | The order of the list changed within the same list. |
+| `OnSort` | Any change to a list (add / remove / update), on each list that changed. |
+| `OnChange` | The dragged item changes position during the drag (raised on the list it moves in). |
+
+The completion events (`OnUpdate`, `OnRemove`, `OnAdd`, `OnSort`, `OnEnd`) are raised after the lists are updated and `ItemsChanged` has been notified.
 
 ### `BlazorSortableEventArgs<TItem>`
 
 | Member | Type | Description |
 |---|---|---|
 | `Item` | `TItem` | The dragged item. |
-| `OldIndex` | `int` | Index in the source list. |
+| `Items` | `IReadOnlyList<TItem>` | Every item moved by the drag (the multi-drag selection, or just `Item`). |
+| `OldIndex` | `int` | Index in the source list when the drag started. |
 | `NewIndex` | `int` | Index in the destination list. |
 | `FromId` | `string` | `Id` of the source list. |
 | `ToId` | `string` | `Id` of the destination list. |
@@ -287,9 +294,9 @@ All events are `EventCallback<BlazorSortableEventArgs<TItem>>`.
 
 ## How it works
 
-- **Native drag events.** Items are `draggable` and the component handles `dragstart`, `dragenter`, `dragover`, `drop`, and `dragend` in C#.
+- **Native drag events.** Items are `draggable` and the component handles `dragstart`, `dragover`, `drop`, and `dragend` in C#. The handlers of all lists are serialized, so a burst of `dragover` events can never act on stale positions.
 - **Live reordering within a list.** Items are keyed with `@key`, so when the list reorders Blazor *moves* the existing DOM node rather than recreating it. This keeps the native drag alive and lets the reorder happen live.
-- **Cross-list preview via a placeholder.** Moving a node between two components would destroy and recreate it, which can cancel the native drag. Instead, the dragged item's data stays in its source list during the drag, and the target renders a ghost **placeholder** showing where the item will land. The actual data move happens on drop. For a move, the source original is hidden (`display:none`, the same technique SortableJS uses) so a single ghost is visible; for a clone, the original stays visible.
+- **Cross-list preview via a placeholder.** Moving a node between two components would destroy and recreate it, which can cancel the native drag. Instead, the dragged item's data stays in its source list during the drag, and the target renders a ghost **placeholder** showing where the item will land. The actual data move happens when the drag ends (on drop, or on release anywhere). For a move, the source original is hidden (`display:none`, the same technique SortableJS uses) so a single ghost is visible; for a clone, the original stays visible.
 - **FLIP animations.** Before each reorder the component records item positions, lets Blazor update the DOM, then transitions each item from its old position to the new one. A small JS module performs the measure/animate step.
 
 ## Running the demo
@@ -302,10 +309,11 @@ Then open the URL shown in the console. The demo mirrors the SortableJS demo sit
 
 ## Notes and limitations
 
-- Item identity must be unique within a list (Blazor `@key`). For clone mode, use a reference-type model and a `Clone` factory that returns distinct objects.
-- Cross-list movement is committed on drop (with a live placeholder preview), rather than physically moving the node between lists mid-drag.
+- Item identity must be unique within a list (Blazor `@key`). An item is never dropped into a list that already contains an equal item, so value-equal duplicates (e.g. the same string twice) are refused rather than breaking rendering. For clone mode, use a reference-type model and a `Clone` factory that returns distinct objects.
+- Lists of different item types may share a group; an item is only accepted by lists of its own type.
+- Cross-list movement is committed when the drag ends (with a live placeholder preview), rather than physically moving the node between lists mid-drag.
 - Not yet implemented: custom easing, and the `toArray`/`sort`/store helpers.
-- Targets .NET 9. Tested with Blazor WebAssembly; the design also works under Blazor Server (the drag state is scoped per circuit).
+- Targets .NET 10. Works with Blazor WebAssembly and Blazor Server (the drag state is scoped per circuit).
 
 ## License
 

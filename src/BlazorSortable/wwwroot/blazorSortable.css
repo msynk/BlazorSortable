@@ -15,6 +15,13 @@
     cursor: grabbing;
 }
 
+/* With a Handle, only the handle drags: the rest of the row behaves normally. */
+:where(.sortable-has-handle) > .sortable-item,
+:where(.sortable-has-handle) > .sortable-item:active {
+    cursor: auto;
+    user-select: auto;
+}
+
 /* The item currently being dragged. */
 .sortable-ghost {
     opacity: 0.4;
@@ -49,6 +56,6 @@
     box-shadow: inset 0 0 0 2px rgba(13, 110, 253, 0.8);
 }
 
-.sortable-disabled .sortable-item {
+.sortable-disabled > .sortable-item {
     cursor: default;
 }

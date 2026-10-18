@@ -1,4 +1,5 @@
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace BlazorSortable;
 
@@ -9,11 +10,12 @@ public static class ServiceCollectionExtensions
 {
     /// <summary>
     /// Registers the <see cref="BlazorSortableService"/> required by <see cref="BlazorSortable{TItem}"/>.
-    /// Scoped so each Blazor Server circuit gets an isolated drag state.
+    /// Scoped so each Blazor Server circuit gets an isolated drag state. Calling it more
+    /// than once is harmless.
     /// </summary>
     public static IServiceCollection AddBlazorSortable(this IServiceCollection services)
     {
-        services.AddScoped<BlazorSortableService>();
+        services.TryAddScoped<BlazorSortableService>();
         return services;
     }
 }

@@ -12,32 +12,31 @@
      @ondragover:preventDefault="true"
      @ondragover:stopPropagation="true"
      @ondragenter:preventDefault="true"
-     @ondrop="OnContainerDrop"
+     @ondrop="OnDrop"
+     @ondrop:preventDefault="true"
      @ondrop:stopPropagation="true">
     @if (Items is not null)
     {
         for (int i = 0; i < Items.Count; i++)
         {
-            int index = i;
-            TItem current = Items[index];
+            TItem current = Items[i];
 
-            if (IsPlaceholderAt(index))
+            if (IsPlaceholderAt(i))
             {
-                @RenderPlaceholder()
+                @Placeholder
             }
 
-            bool draggable = IsDraggable(current);
+            bool canDrag = CanDrag(current);
             <div @key="current"
                  class="@ItemCssClass(current)"
                  data-sortable-item="true"
-                 draggable="@(draggable ? "true" : "false")"
-                 @onclick="() => OnItemClick(current)"
+                 data-sortable-disabled="@(canDrag ? null : "true")"
+                 draggable="@(canDrag && string.IsNullOrEmpty(Handle) ? "true" : "false")"
+                 @onclick="ItemClickCallback(current)"
                  @ondragstart="() => OnItemDragStart(current)"
                  @ondragstart:stopPropagation="true"
                  @ondragend="OnItemDragEnd"
-                 @ondragover:preventDefault="true"
-                 @ondrop="OnItemDrop"
-                 @ondrop:stopPropagation="true">
+                 @ondragend:stopPropagation="true">
                 @if (ItemTemplate is not null)
                 {
                     @ItemTemplate(current)
@@ -47,38 +46,22 @@
 
         if (IsPlaceholderAt(Items.Count))
         {
-            @RenderPlaceholder()
+            @Placeholder
         }
     }
     @ChildContent
 </div>
 
 @code {
-    private RenderFragment RenderPlaceholder() => builder =>
-    {
-        builder.OpenElement(0, "div");
-        builder.SetKey(PlaceholderKey);
-        builder.AddAttribute(1, "class", PlaceholderCssClass());
-        builder.AddAttribute(2, "data-sortable-item", "true");
-        builder.AddAttribute(3, "data-sortable-placeholder", "true");
-
-        builder.AddAttribute(4, "ondragover", EventCallback.Factory.Create<DragEventArgs>(this, NoOp));
-        builder.AddEventPreventDefaultAttribute(5, "ondragover", true);
-
-        builder.AddAttribute(6, "ondragenter", EventCallback.Factory.Create<DragEventArgs>(this, NoOp));
-        builder.AddEventStopPropagationAttribute(7, "ondragenter", true);
-        builder.AddEventPreventDefaultAttribute(8, "ondragenter", true);
-
-        builder.AddAttribute(9, "ondrop", EventCallback.Factory.Create<DragEventArgs>(this, OnPlaceholderDrop));
-        builder.AddEventStopPropagationAttribute(10, "ondrop", true);
-
-        if (ItemTemplate is not null && Service.Context?.Item is TItem preview)
+    // Drop preview shown in a list the dragged item would be moved into. It renders
+    // the dragged item's own template, so it looks like the item will once dropped.
+    private RenderFragment Placeholder => @<div class="@PlaceholderCssClass()"
+                                                data-sortable-item="true"
+                                                data-sortable-placeholder="true"
+                                                aria-hidden="true">
+        @if (ItemTemplate is not null && Service.Context?.Item is TItem preview)
         {
-            builder.AddContent(11, ItemTemplate(preview));
+            @ItemTemplate(preview)
         }
-
-        builder.CloseElement();
-    };
-
-    private static void NoOp() { }
+    </div>;
 }

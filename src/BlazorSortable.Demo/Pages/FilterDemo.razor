@@ -10,11 +10,9 @@
     </p>
 
     <BlazorSortable @bind-Items="items" TItem="string"
-              Filter="IsLocked"
-              Class="demo-list" ItemClass="demo-item" GhostClass="demo-ghost">
-        <ItemTemplate Context="item">
-            <span class="@(IsLocked(item) ? "filtered d-block m-n2 p-2 rounded" : "")">@item</span>
-        </ItemTemplate>
+                    Filter="IsLocked" ItemClassSelector='i => IsLocked(i) ? "filtered" : null'
+                    Class="demo-list" ItemClass="demo-item" GhostClass="demo-ghost">
+        <ItemTemplate Context="item">@item</ItemTemplate>
     </BlazorSortable>
 
     <p class="mt-3"><strong>Order:</strong> @string.Join(", ", items)</p>
@@ -23,11 +21,9 @@
 @@page "/filter"
 
 &lt;BlazorSortable @@bind-Items="items" TItem="string"
-          Filter="IsLocked"
-          Class="demo-list" ItemClass="demo-item" GhostClass="demo-ghost"&gt;
-    &lt;ItemTemplate Context="item"&gt;
-        &lt;span class="@@(IsLocked(item) ? "filtered d-block m-n2 p-2 rounded" : "")"&gt;@@item&lt;/span&gt;
-    &lt;/ItemTemplate&gt;
+                Filter="IsLocked" ItemClassSelector='i =&gt; IsLocked(i) ? "filtered" : null'
+                Class="demo-list" ItemClass="demo-item" GhostClass="demo-ghost"&gt;
+    &lt;ItemTemplate Context="item"&gt;@@item&lt;/ItemTemplate&gt;
 &lt;/BlazorSortable&gt;
 
 &lt;p&gt;&lt;strong&gt;Order:&lt;/strong&gt; @@string.Join(", ", items)&lt;/p&gt;

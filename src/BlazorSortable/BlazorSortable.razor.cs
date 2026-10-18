@@ -1,3 +1,4 @@
+using System.Text;
 using BlazorSortable.Internal;
 using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Components.Web;
@@ -10,18 +11,29 @@ namespace BlazorSortable;
 /// Reorder items within a list or drag them between lists that share a <see cref="Group"/>.
 /// </summary>
 /// <typeparam name="TItem">The type of the bound items.</typeparam>
-public partial class BlazorSortable<TItem> : IBlazorSortableZone, IAsyncDisposable
+public partial class BlazorSortable<TItem> : IBlazorSortableZone, IHandleEvent, IAsyncDisposable
 {
+    private const string ModulePath = "./_content/BlazorSortable/blazorSortable.js";
+
+    private static readonly EqualityComparer<TItem> Comparer = EqualityComparer<TItem>.Default;
+
+    // Items currently selected for multi-drag in this list.
+    private readonly HashSet<TItem> _selected = new();
+
     private ElementReference _listElement;
     private IJSObjectReference? _module;
-    private bool _handleInitialized;
+    private string? _appliedHandle;
     private bool _playFlipOnRender;
     private bool _disposed;
 
     [Inject] private BlazorSortableService Service { get; set; } = default!;
     [Inject] private IJSRuntime JS { get; set; } = default!;
 
-    /// <summary>The list of items to display and reorder. Bind with <c>@bind-Items</c>.</summary>
+    /// <summary>
+    /// The list of items to display and reorder. Bind with <c>@bind-Items</c>. It must be
+    /// a mutable list (e.g. <see cref="List{T}"/>); a read-only one (such as an array) can
+    /// only be dragged from in <see cref="BlazorSortablePull.Clone"/> mode.
+    /// </summary>
     [Parameter] public IList<TItem>? Items { get; set; }
 
     /// <summary>Raised when the bound list changes (supports <c>@bind-Items</c>).</summary>
@@ -51,7 +63,8 @@ public partial class BlazorSortable<TItem> : IBlazorSortableZone, IAsyncDisposab
     /// <summary>
     /// The fraction (0–1) of an item that acts as its swap zone, mirroring the SortableJS
     /// <c>swapThreshold</c> option. With the default <c>1</c> the whole item swaps; a smaller
-    /// value (e.g. <c>0.65</c>) leaves a dead zone near each edge so swaps feel less twitchy.
+    /// value (e.g. <c>0.65</c>) leaves a dead zone near each edge, so the pointer has to move
+    /// further into an item before the dragged one swaps past it.
     /// </summary>
     [Parameter] public double SwapThreshold { get; set; } = 1;
 
@@ -140,159 +153,185 @@ public partial class BlazorSortable<TItem> : IBlazorSortableZone, IAsyncDisposab
     /// </summary>
     [Parameter] public string SelectedClass { get; set; } = "sortable-selected";
 
-    // Lifecycle events (mirroring SortableJS).
+    /// <summary>Raised on this list when a drag starts in it.</summary>
     [Parameter] public EventCallback<BlazorSortableEventArgs<TItem>> OnStart { get; set; }
+
+    /// <summary>Raised on the source list when a drag ends, whatever its outcome.</summary>
     [Parameter] public EventCallback<BlazorSortableEventArgs<TItem>> OnEnd { get; set; }
+
+    /// <summary>Raised on the destination list when an item is dropped in from another list.</summary>
     [Parameter] public EventCallback<BlazorSortableEventArgs<TItem>> OnAdd { get; set; }
+
+    /// <summary>Raised on the source list when an item is moved out to another list.</summary>
     [Parameter] public EventCallback<BlazorSortableEventArgs<TItem>> OnRemove { get; set; }
+
+    /// <summary>Raised when the order of this list changed within the list.</summary>
     [Parameter] public EventCallback<BlazorSortableEventArgs<TItem>> OnUpdate { get; set; }
+
+    /// <summary>Raised on every list whose items changed (add, remove or update).</summary>
     [Parameter] public EventCallback<BlazorSortableEventArgs<TItem>> OnSort { get; set; }
+
+    /// <summary>Raised while dragging, each time the dragged item moves to a new position in this list.</summary>
     [Parameter] public EventCallback<BlazorSortableEventArgs<TItem>> OnChange { get; set; }
 
-    private static readonly EqualityComparer<TItem> Comparer = EqualityComparer<TItem>.Default;
+    // ----- lifecycle ------------------------------------------------------
 
-    // Items currently selected for multi-drag in this list.
-    private readonly HashSet<TItem> _selected = new();
-
-    // Stable @key for the placeholder element so Blazor animates it instead of recreating it.
-    private static readonly object PlaceholderKey = new();
-
-    // ----- rendering helpers ---------------------------------------------
-
-    private string ContainerCssClass
+    /// <inheritdoc />
+    protected override void OnParametersSet()
     {
-        get
+        // Forget selected items that are no longer in the (possibly replaced) list.
+        if (_selected.Count > 0)
         {
-            var classes = "sortable";
-            if (!string.IsNullOrWhiteSpace(Class)) classes += " " + Class;
-            if (Disabled) classes += " sortable-disabled";
-            return classes;
+            var items = Items;
+            if (!MultiDrag || items is null) _selected.Clear();
+            else _selected.RemoveWhere(item => !items.Contains(item));
         }
     }
 
+    // Drag events fire continuously, so this component decides itself when to
+    // re-render instead of re-rendering after every handled DOM event.
+    Task IHandleEvent.HandleEventAsync(EventCallbackWorkItem callback, object? arg) => callback.InvokeAsync(arg);
+
+    // ----- rendering helpers ---------------------------------------------
+
+    private string ContainerCssClass => Css("sortable", Class,
+        Disabled ? "sortable-disabled" : null,
+        string.IsNullOrEmpty(Handle) ? null : "sortable-has-handle");
+
     private string ItemCssClass(TItem item)
     {
-        var classes = "sortable-item";
-        if (!string.IsNullOrWhiteSpace(ItemClass)) classes += " " + ItemClass;
-
-        var extra = ItemClassSelector?.Invoke(item);
-        if (!string.IsNullOrWhiteSpace(extra)) classes += " " + extra;
-
         var ctx = Service.Context;
+        string? dragState = null;
         if (ctx is not null && ReferenceEquals(ctx.CurrentZone, this) && ctx.Item is TItem dragged && Comparer.Equals(dragged, item))
         {
-            if (ctx.PlaceholderZone is not null && !ReferenceEquals(ctx.PlaceholderZone, this))
-            {
-                // Previewed as the ghost in another list. For a move, hide the original here
-                // (same as within-list). For a clone, the original must stay put and visible.
-                if (ctx.PullMode != BlazorSortablePull.Clone)
-                    classes += " sortable-hidden";
-            }
-            else
-            {
-                classes += " " + GhostClass + " " + ChosenClass;
-            }
+            if (ctx.PlaceholderZone is null || ReferenceEquals(ctx.PlaceholderZone, this))
+                dragState = Css(GhostClass, ChosenClass);
+            else if (ctx.PullMode != BlazorSortablePull.Clone)
+                // Previewed as the placeholder in another list: hide the original here, as
+                // SortableJS does. For a clone, the original stays put and visible.
+                dragState = "sortable-hidden";
         }
-        if (ctx is not null && ReferenceEquals(ctx.SwapTargetZone, this)
-            && ctx.SwapTargetItem is TItem swapTarget && Comparer.Equals(swapTarget, item)
-            && !string.IsNullOrWhiteSpace(SwapClass))
-        {
-            classes += " " + SwapClass;
-        }
-        if (MultiDrag && _selected.Contains(item) && !string.IsNullOrWhiteSpace(SelectedClass))
-            classes += " " + SelectedClass;
-        if (Filter is not null && Filter(item)) classes += " sortable-filtered";
-        return classes;
+
+        bool swapTarget = ctx is not null && ReferenceEquals(ctx.SwapTargetZone, this)
+            && ctx.SwapTargetItem is TItem target && Comparer.Equals(target, item);
+
+        return Css("sortable-item", ItemClass, ItemClassSelector?.Invoke(item), dragState,
+            swapTarget ? SwapClass : null,
+            MultiDrag && _selected.Contains(item) ? SelectedClass : null,
+            IsFiltered(item) ? "sortable-filtered" : null);
     }
 
     // The preview slot uses the exact same ghost styling as a within-list drag,
     // and keeps the dragged item's own per-item class so its style is preserved.
     private string PlaceholderCssClass()
     {
-        var classes = "sortable-item";
-        if (!string.IsNullOrWhiteSpace(ItemClass)) classes += " " + ItemClass;
-
-        if (ItemClassSelector is not null && Service.Context?.Item is TItem preview)
-        {
-            var extra = ItemClassSelector(preview);
-            if (!string.IsNullOrWhiteSpace(extra)) classes += " " + extra;
-        }
-
-        classes += " " + GhostClass;
-        if (!string.IsNullOrWhiteSpace(ChosenClass)) classes += " " + ChosenClass;
-        return classes;
+        var extra = ItemClassSelector is not null && Service.Context?.Item is TItem preview ? ItemClassSelector(preview) : null;
+        return Css("sortable-item", ItemClass, extra, GhostClass, ChosenClass);
     }
 
-    private bool IsDraggable(TItem item)
+    private static string Css(params ReadOnlySpan<string?> parts)
     {
-        if (Disabled) return false;
-        if (Filter is not null && Filter(item)) return false;
-        // With a handle, the row is not draggable until the JS helper enables it
-        // when the pointer goes down on the handle element.
-        if (!string.IsNullOrEmpty(Handle)) return false;
-        return true;
+        var sb = new StringBuilder();
+        foreach (var part in parts)
+        {
+            if (string.IsNullOrWhiteSpace(part)) continue;
+            if (sb.Length > 0) sb.Append(' ');
+            sb.Append(part.Trim());
+        }
+        return sb.ToString();
     }
 
-    // ----- drag event handlers -------------------------------------------
+    private bool IsPlaceholderAt(int index)
+    {
+        var ctx = Service.Context;
+        return ctx is not null && ReferenceEquals(ctx.PlaceholderZone, this) && ctx.PlaceholderIndex == index;
+    }
+
+    private bool IsFiltered(TItem item) => Filter is not null && Filter(item);
+
+    private bool CanDrag(TItem item) => !Disabled && !IsFiltered(item);
+
+    // A read-only list (e.g. an array) can be displayed and cloned from, but not changed.
+    private bool IsMutable => Items is { IsReadOnly: false };
+
+    private bool AllowSort => Sort && !Disabled && IsMutable;
+
+    private BlazorSortablePull EffectivePull => Pull == BlazorSortablePull.Move && !IsMutable ? BlazorSortablePull.None : Pull;
+
+    private string DirectionValue => Direction switch
+    {
+        BlazorSortableDirection.Horizontal => "horizontal",
+        BlazorSortableDirection.Vertical => "vertical",
+        _ => "auto"
+    };
+
+    // ----- multi-drag selection ------------------------------------------
+
+    private EventCallback ItemClickCallback(TItem item)
+        => MultiDrag ? EventCallback.Factory.Create(this, () => ToggleSelection(item)) : default;
 
     /// <summary>Toggles an item's multi-drag selection when clicked (MultiDrag mode).</summary>
-    private void OnItemClick(TItem item)
+    private void ToggleSelection(TItem item)
     {
-        if (!MultiDrag || Disabled || (Filter is not null && Filter(item))) return;
+        if (!MultiDrag || !CanDrag(item)) return;
         if (!_selected.Add(item)) _selected.Remove(item);
         StateHasChanged();
     }
 
+    // ----- drag event handlers -------------------------------------------
+
     private async Task OnItemDragStart(TItem item)
     {
-        if (Disabled || (Filter is not null && Filter(item))) return;
+        if (!CanDrag(item) || Items is null) return;
 
-        // Defensive: clear any context left over from a drag that ended outside a list.
-        if (Service.Context is { Finished: false } stale)
+        BlazorSortableMoveInfo info;
+        await Service.Gate.WaitAsync();
+        try
         {
-            await stale.Source.ClearFlipAsync();
-            await stale.CurrentZone.ClearFlipAsync();
-        }
-        Service.Context = null;
+            // A drag whose end was never observed (e.g. its element was removed mid-drag): discard it.
+            if (Service.Context is { } stale) await AbandonAsync(stale);
 
-        // Multi-drag: dragging a selected item carries the whole selection; dragging an
-        // unselected item drops the selection and drags only that item (like SortableJS).
-        List<object>? block = null;
-        if (MultiDrag)
-        {
-            if (_selected.Contains(item) && Items is not null)
+            int oldIndex = Items.IndexOf(item);
+            if (oldIndex < 0) return;
+
+            // Multi-drag: dragging a selected item carries the whole selection; dragging an
+            // unselected item drops the selection and drags only that item (like SortableJS).
+            List<object>? block = null;
+            if (MultiDrag)
             {
-                block = new List<object>();
-                foreach (var it in Items)
-                    if (_selected.Contains(it)) block.Add(it!);
+                if (_selected.Contains(item))
+                {
+                    block = new List<object>();
+                    foreach (var it in Items)
+                        if (_selected.Contains(it)) block.Add(it!);
+                }
+                else
+                {
+                    _selected.Clear();
+                }
             }
-            else
+
+            var ctx = new BlazorSortableDragContext
             {
-                _selected.Clear();
-            }
+                Item = item!,
+                OriginalItem = item!,
+                Source = this,
+                CurrentZone = this,
+                OldIndex = oldIndex,
+                PullMode = EffectivePull,
+                StartOrder = Items.Select(i => (object?)i).ToList(),
+                MultiItems = block is { Count: > 1 } ? block : null
+            };
+            Service.Context = ctx;
+            info = MoveInfo(ctx, this, oldIndex);
+            StateHasChanged();
+        }
+        finally
+        {
+            Service.Gate.Release();
         }
 
-        var ctx = new BlazorSortableDragContext
-        {
-            Item = item!,
-            OriginalItem = item!,
-            Source = this,
-            CurrentZone = this,
-            OldIndex = Items?.IndexOf(item) ?? -1,
-            PullMode = Pull,
-            MultiItems = block is { Count: > 1 } ? block : null
-        };
-        Service.Context = ctx;
-
-        await RaiseEventAsync(BlazorSortableEventType.Start, new BlazorSortableMoveInfo
-        {
-            Item = item!,
-            OldIndex = ctx.OldIndex,
-            NewIndex = ctx.OldIndex,
-            From = this,
-            To = this
-        });
-        StateHasChanged();
+        await RaiseEventAsync(BlazorSortableEventType.Start, info);
     }
 
     /// <summary>
@@ -303,109 +342,178 @@ public partial class BlazorSortable<TItem> : IBlazorSortableZone, IAsyncDisposab
     /// </summary>
     private async Task OnContainerDragOver(DragEventArgs e)
     {
-        var ctx = Service.Context;
-        if (ctx is null || Disabled || Items is null) return;
+        // dragover fires continuously; skip it while a previous one is still being handled.
+        if (Service.Context is null || _disposed || !await Service.Gate.WaitAsync(0)) return;
 
-        if (Swap)
+        BlazorSortableMoveInfo? change = null;
+        IBlazorSortableZone? changed = null;
+        try
         {
-            await UpdateSwapTargetAsync(ctx, e);
-            return;
+            var ctx = Service.Context;
+            if (ctx is null || ctx.Finished) return;
+
+            if (Swap)
+            {
+                await UpdateSwapTargetAsync(ctx, e);
+            }
+            else if (ReferenceEquals(ctx.CurrentZone, this))
+            {
+                change = await ReorderWithinAsync(ctx, e);
+                changed = this;
+            }
+            else
+            {
+                change = await PreviewFromOtherListAsync(ctx, e);
+                changed = this;
+            }
+        }
+        finally
+        {
+            Service.Gate.Release();
         }
 
-        if (ReferenceEquals(ctx.CurrentZone, this))
-            await ReorderWithinAsync(ctx, e);
-        else
-            await PreviewFromOtherListAsync(ctx, e);
+        if (change is not null && changed is not null)
+            await changed.RaiseEventAsync(BlazorSortableEventType.Change, change);
     }
 
     /// <summary>Reorders the home list as the dragged item moves over it.</summary>
-    private async Task ReorderWithinAsync(BlazorSortableDragContext ctx, DragEventArgs e)
+    private async Task<BlazorSortableMoveInfo?> ReorderWithinAsync(BlazorSortableDragContext ctx, DragEventArgs e)
     {
-        // Returning to the home list: drop any cross-list placeholder first.
-        if (ctx.PlaceholderZone is not null)
-            await ClearPlaceholderAsync(ctx);
+        // A swap target highlighted by a swap-mode list of the group no longer applies.
+        ClearSwapTarget(ctx);
 
-        if (!AllowSort || ctx.Item is not TItem dragged || Items is null) return;
+        if (!AllowSort || Items is null || ctx.Item is not TItem dragged)
+        {
+            // Back home from a cross-list preview into a list that cannot be sorted: the
+            // item returns to its original place (SortableJS "revert").
+            await ClearPlaceholderAsync(ctx);
+            return null;
+        }
+
+        // While the item is previewed in another list its original here is hidden; the
+        // drop index is still expressed in this list's indices (hidden item included).
+        int target = await GetDropIndexAsync(e.ClientX, e.ClientY);
+        if (target < 0) return null; // dead zone: keep the current order (and any preview)
 
         int from = Items.IndexOf(dragged);
-        if (from < 0) return;
+        if (from < 0) return null;
+        int insertAt = Math.Min(target > from ? target - 1 : target, Items.Count - 1);
+        bool previewedElsewhere = ctx.PlaceholderZone is not null;
+        if (insertAt == from && !previewedElsewhere) return null;
 
-        int target = await GetDropIndexAsync(e.ClientX, e.ClientY);
-        if (target < 0) return; // dead zone: keep the current order
-
-        int insertAt = target > from ? target - 1 : target;
-        if (insertAt == from) return;
-
+        // Back home from a cross-list preview: take the item back, at the pointer's position.
+        if (previewedElsewhere) await ClearPlaceholderAsync(ctx);
         await CaptureFlipAsync();
-        Items.RemoveAt(from);
-        Items.Insert(insertAt, dragged);
-        RequestFlipPlay();
 
-        await RaiseEventAsync(BlazorSortableEventType.Change, new BlazorSortableMoveInfo
+        if (insertAt != from)
         {
-            Item = dragged!,
-            OldIndex = from,
-            NewIndex = insertAt,
-            From = this,
-            To = this
-        });
+            Items.RemoveAt(from);
+            Items.Insert(insertAt, dragged);
+            ctx.ChangedZones.Add(this);
+        }
+        RequestFlipPlay();
         StateHasChanged();
+
+        return insertAt != from ? MoveInfo(ctx, this, insertAt) : null;
     }
 
     /// <summary>
     /// Previews where an item dragged in from another list would land. The actual
-    /// item is not moved until drop, so the native drag stays alive. Hovering past
-    /// the last item's swap zone targets the end, making it reachable across lists.
+    /// item is not moved until the drag ends, so the native drag stays alive.
     /// </summary>
-    private async Task PreviewFromOtherListAsync(BlazorSortableDragContext ctx, DragEventArgs e)
+    private async Task<BlazorSortableMoveInfo?> PreviewFromOtherListAsync(BlazorSortableDragContext ctx, DragEventArgs e)
     {
-        if (!CanReceiveFrom(ctx.Source) || ctx.Source.PullMode == BlazorSortablePull.None) return;
-
-        // Refuse to receive an item into its own descendant list, which would
-        // detach the dragged subtree from the render tree (data corruption).
-        if (await WouldNestAsync()) return;
+        // Refuse to receive an item into its own descendant list (or into the preview
+        // copy of it), which would detach the dragged subtree from the render tree.
+        if (!CanAccept(ctx) || await WouldNestAsync()) return null;
 
         int index = await GetDropIndexAsync(e.ClientX, e.ClientY);
-        if (index < 0)
-        {
-            // Dead zone: keep an existing preview, or default to the end when first entering.
-            if (ReferenceEquals(ctx.PlaceholderZone, this)) return;
-            index = Count;
-        }
-        if (index > Count) index = Count;
-        await ShowPlaceholderAsync(ctx, index);
-    }
+        if (index < 0) return null; // dead zone: keep the current preview (if any)
 
-    private async Task<int> GetDropIndexAsync(double clientX, double clientY)
-    {
-        if (_disposed || _module is null) return -1;
-        try
-        {
-            return await _module.InvokeAsync<int>("dropIndex", _listElement, clientX, clientY,
-                SwapThreshold, InvertSwap, InvertedSwapThreshold, DirectionValue);
-        }
-        catch (JSDisconnectedException) { return -1; }
-        catch (ObjectDisposedException) { return -1; }
+        index = Math.Min(index, Count);
+        if (ReferenceEquals(ctx.PlaceholderZone, this) && ctx.PlaceholderIndex == index) return null;
+
+        await ShowPlaceholderAsync(ctx, index);
+        return MoveInfo(ctx, this, index);
     }
 
     /// <summary>
-    /// True when this list lives inside the DOM subtree of the item currently
-    /// being dragged, so receiving it here would nest the item inside itself.
+    /// Whether the item currently being dragged (and, for a multi-drag, the rest of the
+    /// selection) may be dropped into this list from another one.
     /// </summary>
-    private async Task<bool> WouldNestAsync()
+    private bool CanAccept(BlazorSortableDragContext ctx)
     {
-        if (_disposed || _module is null) return false;
-        try { return await _module.InvokeAsync<bool>("wouldNest", _listElement); }
-        catch (JSDisconnectedException) { return false; }
-        catch (ObjectDisposedException) { return false; }
+        if (Items is null || ctx.PullMode == BlazorSortablePull.None || !CanReceiveFrom(ctx.Source)) return false;
+
+        // Every incoming item must be of this list's type and not already in it: Blazor
+        // requires unique @key values, so a value-equal duplicate cannot be added.
+        if (ctx.MultiItems is { } block && ctx.PullMode == BlazorSortablePull.Move)
+        {
+            foreach (var item in block)
+                if (item is not TItem t || Items.Contains(t)) return false;
+            return true;
+        }
+
+        return ctx.Item is TItem dragged && !Items.Contains(dragged);
     }
 
-    private string DirectionValue => Direction switch
+    private bool CanReceiveFrom(IBlazorSortableZone source)
     {
-        BlazorSortableDirection.Horizontal => "horizontal",
-        BlazorSortableDirection.Vertical => "vertical",
-        _ => "auto"
-    };
+        if (Disabled || !Put || !IsMutable) return false;
+        if (ReferenceEquals(source, this)) return true;
+        if (Group is null || source.GroupName is null) return false;
+        return string.Equals(Group, source.GroupName, StringComparison.Ordinal);
+    }
+
+    /// <summary>Shows (or moves) the drop placeholder in this zone at <paramref name="index"/>.</summary>
+    private async Task ShowPlaceholderAsync(BlazorSortableDragContext ctx, int index)
+    {
+        var previous = ctx.PlaceholderZone;
+        var source = ctx.CurrentZone; // hides its original while the item is previewed elsewhere
+
+        // Snapshot every list whose layout is about to change (FLIP).
+        await CaptureFlipAsync();
+        if (previous is not null && !ReferenceEquals(previous, this)) await previous.CaptureFlipAsync();
+        if (previous is null) await source.CaptureFlipAsync();
+
+        ClearSwapTarget(ctx);
+        ctx.PlaceholderZone = this;
+        ctx.PlaceholderIndex = index;
+
+        if (previous is not null && !ReferenceEquals(previous, this))
+        {
+            previous.RequestFlipPlay();
+            previous.Rerender();
+        }
+        if (previous is null)
+        {
+            source.RequestFlipPlay();
+            source.Rerender();
+        }
+        RequestFlipPlay();
+        StateHasChanged();
+    }
+
+    /// <summary>Removes the placeholder from whichever zone is currently showing it.</summary>
+    private static async Task ClearPlaceholderAsync(BlazorSortableDragContext ctx)
+    {
+        var zone = ctx.PlaceholderZone;
+        if (zone is null) return;
+
+        var source = ctx.CurrentZone; // its hidden original becomes visible again
+        await zone.CaptureFlipAsync();
+        if (!ReferenceEquals(source, zone)) await source.CaptureFlipAsync();
+
+        ctx.PlaceholderZone = null;
+
+        zone.RequestFlipPlay();
+        zone.Rerender();
+        if (!ReferenceEquals(source, zone))
+        {
+            source.RequestFlipPlay();
+            source.Rerender();
+        }
+    }
 
     // ----- swap mode (Swap plugin) ---------------------------------------
 
@@ -416,44 +524,58 @@ public partial class BlazorSortable<TItem> : IBlazorSortableZone, IAsyncDisposab
     /// </summary>
     private async Task UpdateSwapTargetAsync(BlazorSortableDragContext ctx, DragEventArgs e)
     {
-        var receiving = !ReferenceEquals(ctx.CurrentZone, this);
+        // A placeholder shown by a sorting list of the group no longer applies.
+        await ClearPlaceholderAsync(ctx);
 
-        // Only highlight a target here if items from the source may land in this list,
-        // and never let an item land inside its own subtree.
-        if (receiving && (!CanReceiveFrom(ctx.Source) || ctx.Source.PullMode == BlazorSortablePull.None || await WouldNestAsync()))
+        if (Items is null) return;
+
+        bool home = ReferenceEquals(ctx.CurrentZone, this);
+        // Swapping moves the dragged item here and the target item to the source list,
+        // so both directions must be allowed. Never let an item land inside its own subtree.
+        bool allowed = home
+            ? AllowSort
+            : CanAccept(ctx) && EffectivePull != BlazorSortablePull.None && ctx.Source.CanReceiveFrom(this) && !await WouldNestAsync();
+
+        object? target = null;
+        if (allowed)
         {
-            await SetSwapTargetAsync(ctx, null, null);
-            return;
+            int index = await GetItemIndexAtAsync(e.ClientX, e.ClientY);
+            if (index >= 0 && index < Items.Count)
+            {
+                var candidate = Items[index];
+                bool valid = candidate is not null && (home
+                    ? !Equals(candidate, ctx.Item)                                          // not the dragged item itself
+                    : ctx.Source.Accepts(candidate) && ctx.Source.IndexOf(candidate) < 0);  // fits the source list
+                if (valid) target = candidate;
+            }
         }
 
-        int index = await GetItemIndexAtAsync(e.ClientX, e.ClientY);
-        object? target = index >= 0 && index < Count && Items is not null ? Items[index] : null;
-
-        // The dragged item is not a valid swap target for itself.
-        if (target is TItem t && !receiving && ctx.Item is TItem dragged && Comparer.Equals(dragged, t))
-            target = null;
-
-        await SetSwapTargetAsync(ctx, target is null ? null : this, target);
+        SetSwapTarget(ctx, target is null ? null : this, target);
     }
 
-    private async Task SetSwapTargetAsync(BlazorSortableDragContext ctx, IBlazorSortableZone? zone, object? item)
+    private void SetSwapTarget(BlazorSortableDragContext ctx, IBlazorSortableZone? zone, object? item)
     {
-        if (ReferenceEquals(ctx.SwapTargetZone, zone)
-            && (item is null ? ctx.SwapTargetItem is null
-                             : ctx.SwapTargetItem is not null && Comparer.Equals((TItem)ctx.SwapTargetItem, (TItem)item)))
-            return;
+        if (ReferenceEquals(ctx.SwapTargetZone, zone) && Equals(ctx.SwapTargetItem, item)) return;
 
-        var oldZone = ctx.SwapTargetZone;
+        var previous = ctx.SwapTargetZone;
         ctx.SwapTargetZone = zone;
         ctx.SwapTargetItem = item;
 
-        if (oldZone is not null && !ReferenceEquals(oldZone, this))
-            await oldZone.RefreshAsync();
-        StateHasChanged();
+        if (previous is not null && !ReferenceEquals(previous, zone)) previous.Rerender();
+        zone?.Rerender();
+    }
+
+    private static void ClearSwapTarget(BlazorSortableDragContext ctx)
+    {
+        var zone = ctx.SwapTargetZone;
+        if (zone is null) return;
+        ctx.SwapTargetZone = null;
+        ctx.SwapTargetItem = null;
+        zone.Rerender();
     }
 
     /// <summary>Trades the dragged item's slot with the highlighted swap target.</summary>
-    private async Task CommitSwapAsync(BlazorSortableDragContext ctx)
+    private static async Task CommitSwapAsync(BlazorSortableDragContext ctx)
     {
         var fromZone = ctx.CurrentZone;
         var toZone = ctx.SwapTargetZone!;
@@ -469,107 +591,111 @@ public partial class BlazorSortable<TItem> : IBlazorSortableZone, IAsyncDisposab
 
         fromZone.Replace(fromIndex, target);
         toZone.Replace(toIndex, dragged);
-
+        ctx.ChangedZones.Add(fromZone);
+        ctx.ChangedZones.Add(toZone);
         ctx.CurrentZone = toZone;
 
         fromZone.RequestFlipPlay();
-        await fromZone.RefreshAsync();
-        if (!ReferenceEquals(toZone, fromZone))
+        toZone.RequestFlipPlay();
+    }
+
+    // ----- drop / end ----------------------------------------------------
+
+    private Task OnDrop(DragEventArgs _) => CompleteDragAsync();
+
+    // Fires on the source item whether or not the drop landed on a list (released
+    // elsewhere, or cancelled with Escape). Whichever of drop/dragend comes first
+    // completes the drag; the other one finds nothing left to do.
+    private Task OnItemDragEnd(DragEventArgs _) => CompleteDragAsync();
+
+    /// <summary>
+    /// Ends the drag: commits the pending swap or placeholder (like SortableJS, an
+    /// item previewed in another list stays there even when released outside a
+    /// list), gathers a multi-drag selection, then raises the lifecycle events.
+    /// </summary>
+    private async Task CompleteDragAsync()
+    {
+        if (Service.Context is null) return;
+
+        BlazorSortableMoveInfo? info = null;
+        bool sameList = false, listChanged = false, sourceChanged = false;
+
+        await Service.Gate.WaitAsync();
+        try
         {
-            toZone.RequestFlipPlay();
-            await toZone.RefreshAsync();
+            var ctx = Service.Context;
+            if (ctx is null || ctx.Finished) return;
+            ctx.Finished = true;
+
+            // Zones showing drag state now; committing may detach them from the context.
+            var placeholderZone = ctx.PlaceholderZone;
+            var swapZone = ctx.SwapTargetZone;
+            try
+            {
+                IReadOnlyList<object>? moved = null;
+                if (ctx.SwapTargetZone is not null && ctx.SwapTargetItem is not null)
+                {
+                    await CommitSwapAsync(ctx);
+                }
+                else
+                {
+                    if (ctx.PlaceholderZone is { } target && !ReferenceEquals(target, ctx.CurrentZone))
+                        await target.CommitPlaceholderAsync(ctx);
+                    if (ctx.MultiItems is not null)
+                        moved = await CollectMultiAsync(ctx);
+                }
+
+                var to = ctx.CurrentZone;
+                sameList = ReferenceEquals(to, ctx.Source);
+                listChanged = !sameList || !SameOrder(ctx.StartOrder, to);
+                sourceChanged = ctx.ChangedZones.Contains(ctx.Source);
+                info = new BlazorSortableMoveInfo
+                {
+                    Item = ctx.Item,
+                    Items = moved,
+                    OldIndex = ctx.OldIndex,
+                    NewIndex = to.IndexOf(ctx.Item),
+                    From = ctx.Source,
+                    To = to
+                };
+            }
+            finally
+            {
+                await EndAsync(ctx, placeholderZone, swapZone);
+            }
         }
-    }
-
-    private async Task<int> GetItemIndexAtAsync(double clientX, double clientY)
-    {
-        if (_disposed || _module is null) return -1;
-        try { return await _module.InvokeAsync<int>("itemIndexAt", _listElement, clientX, clientY); }
-        catch (JSDisconnectedException) { return -1; }
-        catch (ObjectDisposedException) { return -1; }
-    }
-
-    /// <summary>Shows (or moves) the drop placeholder in this zone at <paramref name="index"/>.</summary>
-    private async Task ShowPlaceholderAsync(BlazorSortableDragContext ctx, int index)
-    {
-        if (ReferenceEquals(ctx.PlaceholderZone, this) && ctx.PlaceholderIndex == index) return;
-
-        var oldZone = ctx.PlaceholderZone;
-        var source = ctx.CurrentZone; // holds the original item (hidden while previewed)
-
-        await CaptureFlipAsync();
-        if (oldZone is not null && !ReferenceEquals(oldZone, this)) await oldZone.CaptureFlipAsync();
-        if (!ReferenceEquals(source, this) && !ReferenceEquals(source, oldZone)) await source.CaptureFlipAsync();
-
-        ctx.PlaceholderZone = this;
-        ctx.PlaceholderIndex = index;
-
-        if (oldZone is not null && !ReferenceEquals(oldZone, this))
+        finally
         {
-            oldZone.RequestFlipPlay();
-            await oldZone.RefreshAsync();
-        }
-        if (!ReferenceEquals(source, this) && !ReferenceEquals(source, oldZone))
-        {
-            source.RequestFlipPlay();
-            await source.RefreshAsync();
-        }
-        RequestFlipPlay();
-        await RefreshAsync();
-        StateHasChanged();
-    }
-
-    /// <summary>Removes the placeholder from whichever zone is currently showing it.</summary>
-    private static async Task ClearPlaceholderAsync(BlazorSortableDragContext ctx)
-    {
-        var ph = ctx.PlaceholderZone;
-        if (ph is null) return;
-        await ph.CaptureFlipAsync();
-        ctx.PlaceholderZone = null;
-        ph.RequestFlipPlay();
-        await ph.RefreshAsync();
-    }
-
-    private bool IsPlaceholderAt(int index)
-    {
-        var ctx = Service.Context;
-        return ctx is not null
-            && ReferenceEquals(ctx.PlaceholderZone, this)
-            && ctx.PlaceholderIndex == index;
-    }
-
-    private Task OnItemDrop(DragEventArgs _) => DropAsync();
-
-    private Task OnPlaceholderDrop(DragEventArgs _) => DropAsync();
-
-    private Task OnContainerDrop(DragEventArgs _) => DropAsync();
-
-    private async Task OnItemDragEnd()
-    {
-        // Fires on the (untouched) source node. Commits a pending cross-list placeholder
-        // if the drop landed there, otherwise finalizes the in-list reorder or cancels.
-        await DropAsync();
-    }
-
-    private async Task DropAsync()
-    {
-        var ctx = Service.Context;
-        if (ctx is null) return;
-
-        if (ctx.SwapTargetItem is not null && ctx.SwapTargetZone is not null)
-        {
-            await CommitSwapAsync(ctx);
-            await FinalizeSwapAsync(ctx);
-            return;
+            Service.Gate.Release();
         }
 
-        if (ReferenceEquals(ctx.PlaceholderZone, this) && !ReferenceEquals(ctx.CurrentZone, this))
-            await CommitPlaceholderAsync(ctx);
+        // Raised once the drag is over (and outside the gate), so handlers see the final state.
+        if (info is null) return;
+        var from = info.From;
+        if (sameList)
+        {
+            if (listChanged)
+            {
+                await from.RaiseEventAsync(BlazorSortableEventType.Update, info);
+                await from.RaiseEventAsync(BlazorSortableEventType.Sort, info);
+            }
+        }
+        else
+        {
+            if (sourceChanged) await from.RaiseEventAsync(BlazorSortableEventType.Remove, info);
+            await info.To.RaiseEventAsync(BlazorSortableEventType.Add, info);
+            if (sourceChanged) await from.RaiseEventAsync(BlazorSortableEventType.Sort, info);
+            await info.To.RaiseEventAsync(BlazorSortableEventType.Sort, info);
+        }
+        await from.RaiseEventAsync(BlazorSortableEventType.End, info);
+    }
 
-        if (ctx.MultiItems is not null)
-            await CollectMultiAsync(ctx);
-
-        await FinalizeAsync(ctx);
+    private static bool SameOrder(IReadOnlyList<object?> before, IBlazorSortableZone zone)
+    {
+        if (before.Count != zone.Count) return false;
+        for (int i = 0; i < before.Count; i++)
+            if (!Equals(before[i], zone.ItemAt(i))) return false;
+        return true;
     }
 
     /// <summary>
@@ -578,234 +704,240 @@ public partial class BlazorSortable<TItem> : IBlazorSortableZone, IAsyncDisposab
     /// block is removed from wherever it sits and re-inserted contiguously, in its
     /// original order, at the primary's position in the destination list.
     /// </summary>
-    private static async Task CollectMultiAsync(BlazorSortableDragContext ctx)
+    private static async Task<IReadOnlyList<object>?> CollectMultiAsync(BlazorSortableDragContext ctx)
     {
         var block = ctx.MultiItems;
-        ctx.MultiItems = null; // guard against a second drop/dragend pass
-        if (block is null || block.Count <= 1) return;
-
-        // Clone mode for multi-drag is not supported; fall back to a single-item move.
-        if (ctx.PullMode == BlazorSortablePull.Clone) return;
+        ctx.MultiItems = null;
+        if (block is null || block.Count <= 1) return null;
 
         var source = ctx.Source;
         var target = ctx.CurrentZone;
+        bool sameList = ReferenceEquals(target, source);
 
-        await source.CaptureFlipAsync();
-        if (!ReferenceEquals(target, source)) await target.CaptureFlipAsync();
+        // Within a list the block is gathered only if the list may be sorted; across lists
+        // only when moving (multi-drag in clone mode clones just the dragged item).
+        if (sameList ? !source.AllowSort : ctx.PullMode != BlazorSortablePull.Move) return null;
+
+        int primaryPos = target.IndexOf(ctx.Item);
+        if (primaryPos < 0) return null;
 
         // Anchor: number of non-block items before the primary in the destination list.
         int anchor = 0;
-        int primaryPos = target.IndexOf(ctx.Item);
         for (int i = 0; i < primaryPos; i++)
-        {
             if (!BlockContains(block, target.ItemAt(i))) anchor++;
+
+        await source.CaptureFlipAsync();
+        if (!sameList) await target.CaptureFlipAsync();
+
+        // The primary sits in the destination list; the rest of the block in the source.
+        foreach (var item in block)
+        {
+            var zone = !sameList && Equals(item, ctx.Item) ? target : source;
+            int index = zone.IndexOf(item);
+            if (index >= 0) zone.RemoveAt(index);
         }
 
-        RemoveBlockFrom(source, block);
-        if (!ReferenceEquals(target, source)) RemoveBlockFrom(target, block);
-
-        if (anchor > target.Count) anchor = target.Count;
+        anchor = Math.Min(anchor, target.Count);
         for (int i = 0; i < block.Count; i++)
             target.Insert(anchor + i, block[i]);
 
+        ctx.ChangedZones.Add(source);
+        ctx.ChangedZones.Add(target);
         source.ClearSelection();
-
         source.RequestFlipPlay();
-        await source.RefreshAsync();
-        if (!ReferenceEquals(target, source))
-        {
-            target.RequestFlipPlay();
-            await target.RefreshAsync();
-        }
+        target.RequestFlipPlay();
+        return block;
     }
 
-    private static bool BlockContains(List<object> block, object item)
+    private static bool BlockContains(List<object> block, object? item)
     {
         foreach (var b in block)
-            if (EqualityComparer<object>.Default.Equals(b, item)) return true;
+            if (Equals(b, item)) return true;
         return false;
     }
 
-    private static void RemoveBlockFrom(IBlazorSortableZone zone, List<object> block)
-    {
-        foreach (var b in block)
-        {
-            int idx = zone.IndexOf(b);
-            if (idx >= 0) zone.RemoveAt(idx);
-        }
-    }
-
-    /// <summary>Moves the dragged item from its source list into this list at the placeholder index.</summary>
+    /// <summary>Moves (or clones) the dragged item from its source list into this list at the placeholder index.</summary>
     private async Task CommitPlaceholderAsync(BlazorSortableDragContext ctx)
     {
-        if (Items is null) return;
-
-        var source = ctx.CurrentZone;
         int index = ctx.PlaceholderIndex;
         ctx.PlaceholderZone = null;
+        if (Items is null || !IsMutable) return;
+
+        var source = ctx.CurrentZone;
+        bool clone = ctx.PullMode == BlazorSortablePull.Clone;
+        var moving = clone ? ctx.Source.CloneItem(ctx.OriginalItem) : ctx.Item;
+
+        // Never insert an item of the wrong type or one that is already here (a
+        // duplicate @key, e.g. a Clone factory returning an equal value): cancel instead.
+        if (moving is not TItem item || Items.Contains(item)) return;
+
+        int sourceIndex = -1;
+        if (!clone)
+        {
+            sourceIndex = source.IndexOf(moving);
+            if (sourceIndex < 0) return;
+        }
 
         await source.CaptureFlipAsync();
         await CaptureFlipAsync();
 
-        object moving;
-        if (ctx.PullMode == BlazorSortablePull.Clone)
+        if (!clone)
         {
-            moving = ctx.Source.CloneItem(ctx.OriginalItem);
-            ctx.HasCloned = true;
-        }
-        else
-        {
-            moving = ctx.Item;
-            int currentIndex = source.IndexOf(moving);
-            if (currentIndex >= 0) source.RemoveAt(currentIndex);
+            source.RemoveAt(sourceIndex);
+            ctx.ChangedZones.Add(source);
             source.RequestFlipPlay();
-            await source.RefreshAsync();
         }
 
-        if (index < 0 || index > Count) index = Count;
-        Insert(index, moving);
-
+        Items.Insert(Math.Clamp(index, 0, Items.Count), item);
+        ctx.ChangedZones.Add(this);
         ctx.Item = moving;
         ctx.CurrentZone = this;
         RequestFlipPlay();
-        await RefreshAsync();
     }
 
-    private async Task FinalizeAsync(BlazorSortableDragContext ctx)
+    /// <summary>Clears the drag state and brings every zone the drag touched up to date.</summary>
+    private async Task EndAsync(BlazorSortableDragContext ctx, params IBlazorSortableZone?[] alsoTouched)
     {
-        if (ctx.Finished) return;
-        ctx.Finished = true;
+        var zones = new HashSet<IBlazorSortableZone>(ReferenceEqualityComparer.Instance) { ctx.Source, ctx.CurrentZone };
+        if (ctx.PlaceholderZone is not null) zones.Add(ctx.PlaceholderZone);
+        if (ctx.SwapTargetZone is not null) zones.Add(ctx.SwapTargetZone);
+        foreach (var zone in alsoTouched)
+            if (zone is not null) zones.Add(zone);
+        zones.UnionWith(ctx.ChangedZones);
 
-        var to = ctx.CurrentZone;
-        var placeholderZone = ctx.PlaceholderZone;
-        int newIndex = to.IndexOf(ctx.Item);
-        var info = new BlazorSortableMoveInfo
-        {
-            Item = ctx.Item,
-            OldIndex = ctx.OldIndex,
-            NewIndex = newIndex,
-            From = ctx.Source,
-            To = to
-        };
-
-        if (ReferenceEquals(to, ctx.Source))
-        {
-            if (newIndex != ctx.OldIndex)
-            {
-                await ctx.Source.RaiseEventAsync(BlazorSortableEventType.Update, info);
-                await ctx.Source.RaiseEventAsync(BlazorSortableEventType.Sort, info);
-            }
-        }
-        else
-        {
-            if (ctx.PullMode != BlazorSortablePull.Clone)
-                await ctx.Source.RaiseEventAsync(BlazorSortableEventType.Remove, info);
-            await to.RaiseEventAsync(BlazorSortableEventType.Add, info);
-            await ctx.Source.RaiseEventAsync(BlazorSortableEventType.Sort, info);
-            await to.RaiseEventAsync(BlazorSortableEventType.Sort, info);
-        }
-
-        await ctx.Source.RaiseEventAsync(BlazorSortableEventType.End, info);
-
-        Service.Context = null;
         ctx.PlaceholderZone = null;
-
-        await ctx.Source.ClearFlipAsync();
-        await to.ClearFlipAsync();
-        await ctx.Source.RefreshAsync();
-        await to.RefreshAsync();
-
-        // A cancelled cross-list drag leaves a placeholder in a third zone: clear it too.
-        if (placeholderZone is not null
-            && !ReferenceEquals(placeholderZone, ctx.Source)
-            && !ReferenceEquals(placeholderZone, to))
-        {
-            await placeholderZone.ClearFlipAsync();
-            await placeholderZone.RefreshAsync();
-        }
-    }
-
-    /// <summary>Finalizes a swap drag: raises lifecycle events and clears the drag state.</summary>
-    private async Task FinalizeSwapAsync(BlazorSortableDragContext ctx)
-    {
-        if (ctx.Finished) return;
-        ctx.Finished = true;
-
-        var from = ctx.Source;
-        var to = ctx.CurrentZone; // set to the swap target's zone in CommitSwapAsync
-        var info = new BlazorSortableMoveInfo
-        {
-            Item = ctx.Item,
-            OldIndex = ctx.OldIndex,
-            NewIndex = to.IndexOf(ctx.Item),
-            From = from,
-            To = to
-        };
-
-        if (ReferenceEquals(to, from))
-        {
-            if (info.NewIndex != ctx.OldIndex)
-            {
-                await from.RaiseEventAsync(BlazorSortableEventType.Update, info);
-                await from.RaiseEventAsync(BlazorSortableEventType.Sort, info);
-            }
-        }
-        else
-        {
-            await from.RaiseEventAsync(BlazorSortableEventType.Remove, info);
-            await to.RaiseEventAsync(BlazorSortableEventType.Add, info);
-            await from.RaiseEventAsync(BlazorSortableEventType.Sort, info);
-            await to.RaiseEventAsync(BlazorSortableEventType.Sort, info);
-        }
-
-        await from.RaiseEventAsync(BlazorSortableEventType.End, info);
-
-        Service.Context = null;
         ctx.SwapTargetZone = null;
         ctx.SwapTargetItem = null;
+        ctx.MultiItems = null;
+        if (ReferenceEquals(Service.Context, ctx)) Service.Context = null;
 
-        await from.ClearFlipAsync();
-        await to.ClearFlipAsync();
-        await from.RefreshAsync();
-        await to.RefreshAsync();
+        foreach (var zone in zones)
+        {
+            await zone.EndDragAsync();
+            zone.Rerender();
+        }
+        foreach (var zone in ctx.ChangedZones)
+            await zone.NotifyItemsChangedAsync();
+    }
+
+    /// <summary>Discards a drag that never completed, restoring the zones it touched.</summary>
+    private async Task AbandonAsync(BlazorSortableDragContext ctx)
+    {
+        ctx.Finished = true;
+        await EndAsync(ctx);
+    }
+
+    private static BlazorSortableMoveInfo MoveInfo(BlazorSortableDragContext ctx, IBlazorSortableZone to, int newIndex) => new()
+    {
+        Item = ctx.Item,
+        Items = ctx.MultiItems,
+        OldIndex = ctx.OldIndex,
+        NewIndex = newIndex,
+        From = ctx.Source,
+        To = to
+    };
+
+    // ----- JS interop ----------------------------------------------------
+
+    private async Task<int> GetDropIndexAsync(double clientX, double clientY)
+        => await InvokeJsAsync("dropIndex", -1, _listElement, clientX, clientY,
+            SwapThreshold, InvertSwap, InvertedSwapThreshold, DirectionValue);
+
+    private async Task<int> GetItemIndexAtAsync(double clientX, double clientY)
+        => await InvokeJsAsync("itemIndexAt", -1, _listElement, clientX, clientY);
+
+    /// <summary>
+    /// True when this list must not receive the dragged item: it lives inside the DOM
+    /// subtree of the item being dragged (receiving it here would nest the item inside
+    /// itself), or inside the drop placeholder (a preview copy of the item).
+    /// </summary>
+    private async Task<bool> WouldNestAsync() => await InvokeJsAsync("wouldNest", false, _listElement);
+
+    private async Task CaptureFlipAsync()
+    {
+        if (Animation > 0) await InvokeJsVoidAsync("capture", _listElement);
+    }
+
+    private void RequestFlipPlay()
+    {
+        if (Animation > 0) _playFlipOnRender = true;
+    }
+
+    private async ValueTask<T> InvokeJsAsync<T>(string identifier, T fallback, params object?[] args)
+    {
+        if (_disposed || _module is null) return fallback;
+        try { return await _module.InvokeAsync<T>(identifier, args); }
+        catch (JSDisconnectedException) { return fallback; }
+        catch (ObjectDisposedException) { return fallback; }
+        catch (TaskCanceledException) { return fallback; }
+    }
+
+    private async ValueTask InvokeJsVoidAsync(string identifier, params object?[] args)
+    {
+        if (_disposed || _module is null) return;
+        try { await _module.InvokeVoidAsync(identifier, args); }
+        catch (JSDisconnectedException) { }
+        catch (ObjectDisposedException) { }
+        catch (TaskCanceledException) { }
+    }
+
+    /// <inheritdoc />
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_disposed) return;
+
+        if (firstRender)
+        {
+            try
+            {
+                _module = await JS.InvokeAsync<IJSObjectReference>("import", ModulePath);
+            }
+            catch (JSDisconnectedException) { return; }
+            catch (TaskCanceledException) { return; }
+
+            if (_disposed)
+            {
+                await DisposeModuleAsync();
+                return;
+            }
+        }
+
+        if (_module is null) return;
+
+        var handle = string.IsNullOrEmpty(Handle) ? null : Handle;
+        if (!string.Equals(handle, _appliedHandle, StringComparison.Ordinal))
+        {
+            _appliedHandle = handle;
+            await InvokeJsVoidAsync("setHandle", _listElement, handle);
+        }
+
+        if (_playFlipOnRender)
+        {
+            _playFlipOnRender = false;
+            await InvokeJsVoidAsync("play", _listElement, Animation);
+        }
     }
 
     // ----- IBlazorSortableZone --------------------------------------------
+
     string IBlazorSortableZone.Id => Id;
     string? IBlazorSortableZone.GroupName => Group;
-    bool IBlazorSortableZone.AllowSort => Sort;
-    bool IBlazorSortableZone.IsDisabled => Disabled;
-    BlazorSortablePull IBlazorSortableZone.PullMode => Pull;
-    bool IBlazorSortableZone.SwapMode => Swap;
-
-    private bool AllowSort => Sort;
-
-    public int Count => Items?.Count ?? 0;
-
+    bool IBlazorSortableZone.AllowSort => AllowSort;
     bool IBlazorSortableZone.CanReceiveFrom(IBlazorSortableZone source) => CanReceiveFrom(source);
+    bool IBlazorSortableZone.Accepts(object item) => item is TItem;
 
-    private bool CanReceiveFrom(IBlazorSortableZone source)
-    {
-        if (Disabled || !Put) return false;
-        if (ReferenceEquals(source, this)) return true;
-        if (Group is null || source.GroupName is null) return false;
-        return string.Equals(Group, source.GroupName, StringComparison.Ordinal);
-    }
+    private int Count => Items?.Count ?? 0;
+    int IBlazorSortableZone.Count => Count;
 
-    int IBlazorSortableZone.IndexOf(object item) => Items is null ? -1 : Items.IndexOf((TItem)item);
+    int IBlazorSortableZone.IndexOf(object item) => Items is not null && item is TItem t ? Items.IndexOf(t) : -1;
 
-    object IBlazorSortableZone.ItemAt(int index) => Items![index]!;
+    object? IBlazorSortableZone.ItemAt(int index) => Items![index];
 
-    void IBlazorSortableZone.Insert(int index, object item) => Insert(index, item);
+    void IBlazorSortableZone.Insert(int index, object item) => Items!.Insert(index, (TItem)item);
 
-    private void Insert(int index, object item) => Items?.Insert(index, (TItem)item);
+    void IBlazorSortableZone.RemoveAt(int index) => Items!.RemoveAt(index);
 
-    void IBlazorSortableZone.RemoveAt(int index) => Items?.RemoveAt(index);
-
-    void IBlazorSortableZone.Replace(int index, object item)
-    {
-        if (Items is not null) Items[index] = (TItem)item;
-    }
+    void IBlazorSortableZone.Replace(int index, object item) => Items![index] = (TItem)item;
 
     void IBlazorSortableZone.ClearSelection()
     {
@@ -821,48 +953,54 @@ public partial class BlazorSortable<TItem> : IBlazorSortableZone, IAsyncDisposab
         return item; // value types / strings: safe to share
     }
 
-    Task IBlazorSortableZone.CaptureFlipAsync() => CaptureFlipAsync();
+    Task IBlazorSortableZone.CommitPlaceholderAsync(BlazorSortableDragContext ctx) => CommitPlaceholderAsync(ctx);
 
-    private async Task CaptureFlipAsync()
-    {
-        if (_disposed || _module is null || Animation <= 0) return;
-        try { await _module.InvokeVoidAsync("capture", _listElement); }
-        catch (JSDisconnectedException) { }
-        catch (ObjectDisposedException) { }
-    }
+    Task IBlazorSortableZone.CaptureFlipAsync() => CaptureFlipAsync();
 
     void IBlazorSortableZone.RequestFlipPlay() => RequestFlipPlay();
 
-    private void RequestFlipPlay()
-    {
-        if (Animation > 0) _playFlipOnRender = true;
-    }
+    void IBlazorSortableZone.Rerender() => StateHasChanged();
 
-    async Task IBlazorSortableZone.ClearFlipAsync()
-    {
-        if (_disposed || _module is null) return;
-        try { await _module.InvokeVoidAsync("clear", _listElement); }
-        catch (JSDisconnectedException) { }
-        catch (ObjectDisposedException) { }
-    }
-
-    async Task IBlazorSortableZone.RefreshAsync() => await RefreshAsync();
-
-    private async Task RefreshAsync()
+    async Task IBlazorSortableZone.NotifyItemsChangedAsync()
     {
         StateHasChanged();
-        if (ItemsChanged.HasDelegate)
+        if (ItemsChanged.HasDelegate && Items is not null)
             await ItemsChanged.InvokeAsync(Items);
     }
 
-    async Task IBlazorSortableZone.RaiseEventAsync(BlazorSortableEventType type, BlazorSortableMoveInfo info)
-        => await RaiseEventAsync(type, info);
+    async Task IBlazorSortableZone.EndDragAsync()
+    {
+        var items = Items;
+        if (_selected.Count > 0 && items is not null)
+            _selected.RemoveWhere(item => !items.Contains(item));
+
+        // Drop a FLIP snapshot that no render is going to play.
+        if (!_playFlipOnRender) await InvokeJsVoidAsync("clear", _listElement);
+    }
+
+    Task IBlazorSortableZone.RaiseEventAsync(BlazorSortableEventType type, BlazorSortableMoveInfo info)
+        => RaiseEventAsync(type, info);
 
     private Task RaiseEventAsync(BlazorSortableEventType type, BlazorSortableMoveInfo info)
     {
+        var callback = type switch
+        {
+            BlazorSortableEventType.Start => OnStart,
+            BlazorSortableEventType.End => OnEnd,
+            BlazorSortableEventType.Add => OnAdd,
+            BlazorSortableEventType.Remove => OnRemove,
+            BlazorSortableEventType.Update => OnUpdate,
+            BlazorSortableEventType.Sort => OnSort,
+            BlazorSortableEventType.Change => OnChange,
+            _ => default
+        };
+        if (!callback.HasDelegate) return Task.CompletedTask;
+
+        var item = (TItem)info.Item;
         var args = new BlazorSortableEventArgs<TItem>
         {
-            Item = (TItem)info.Item,
+            Item = item,
+            Items = info.Items is { } items ? items.Cast<TItem>().ToList() : [item],
             OldIndex = info.OldIndex,
             NewIndex = info.NewIndex,
             FromId = info.From.Id,
@@ -870,67 +1008,49 @@ public partial class BlazorSortable<TItem> : IBlazorSortableZone, IAsyncDisposab
             FromGroup = info.From.GroupName,
             ToGroup = info.To.GroupName
         };
-
-        return type switch
-        {
-            BlazorSortableEventType.Start => OnStart.InvokeAsync(args),
-            BlazorSortableEventType.End => OnEnd.InvokeAsync(args),
-            BlazorSortableEventType.Add => OnAdd.InvokeAsync(args),
-            BlazorSortableEventType.Remove => OnRemove.InvokeAsync(args),
-            BlazorSortableEventType.Update => OnUpdate.InvokeAsync(args),
-            BlazorSortableEventType.Sort => OnSort.InvokeAsync(args),
-            BlazorSortableEventType.Change => OnChange.InvokeAsync(args),
-            _ => Task.CompletedTask
-        };
+        return callback.InvokeAsync(args);
     }
 
-    // ----- JS interop for handle support ---------------------------------
+    // ----- disposal ------------------------------------------------------
 
-    protected override async Task OnAfterRenderAsync(bool firstRender)
-    {
-        if (_disposed) return;
-
-        if (firstRender)
-        {
-            _module = await JS.InvokeAsync<IJSObjectReference>(
-                "import", "./_content/BlazorSortable/blazorSortable.js");
-        }
-
-        if (!string.IsNullOrEmpty(Handle) && !_handleInitialized && _module is not null)
-        {
-            _handleInitialized = true;
-            try { await _module.InvokeVoidAsync("initHandle", _listElement, Handle); }
-            catch (JSDisconnectedException) { }
-            catch (ObjectDisposedException) { }
-        }
-
-        if (_playFlipOnRender && _module is not null)
-        {
-            _playFlipOnRender = false;
-            try { await _module.InvokeVoidAsync("play", _listElement, Animation); }
-            catch (JSDisconnectedException) { }
-            catch (ObjectDisposedException) { }
-        }
-    }
-
+    /// <summary>Ends any drag this list is part of and releases the JS module.</summary>
     public async ValueTask DisposeAsync()
     {
+        if (_disposed) return;
         _disposed = true;
 
-        if (Service.Context is { } ctx && ReferenceEquals(ctx.CurrentZone, this))
-            Service.Context = null;
-
-        if (Service.Context is { } ctx2 && ReferenceEquals(ctx2.SwapTargetZone, this))
+        if (Service.Context is { } ctx)
         {
-            ctx2.SwapTargetZone = null;
-            ctx2.SwapTargetItem = null;
+            if (ReferenceEquals(ctx.Source, this) || ReferenceEquals(ctx.CurrentZone, this))
+            {
+                // The list the item is dragged from is gone: abandon the drag.
+                Service.Context = null;
+                ctx.Finished = true;
+                ctx.PlaceholderZone?.Rerender();
+                ctx.SwapTargetZone?.Rerender();
+            }
+            else
+            {
+                if (ReferenceEquals(ctx.PlaceholderZone, this)) ctx.PlaceholderZone = null;
+                if (ReferenceEquals(ctx.SwapTargetZone, this))
+                {
+                    ctx.SwapTargetZone = null;
+                    ctx.SwapTargetItem = null;
+                }
+            }
         }
 
-        if (_module is not null)
-        {
-            try { await _module.DisposeAsync(); }
-            catch (JSDisconnectedException) { }
-            catch (ObjectDisposedException) { }
-        }
+        await DisposeModuleAsync();
+    }
+
+    private async ValueTask DisposeModuleAsync()
+    {
+        var module = _module;
+        _module = null;
+        if (module is null) return;
+        try { await module.DisposeAsync(); }
+        catch (JSDisconnectedException) { }
+        catch (ObjectDisposedException) { }
+        catch (TaskCanceledException) { }
     }
 }

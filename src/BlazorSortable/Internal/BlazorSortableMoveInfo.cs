@@ -7,6 +7,10 @@ namespace BlazorSortable.Internal;
 internal sealed class BlazorSortableMoveInfo
 {
     public required object Item { get; init; }
+
+    /// <summary>All items moved together (multi-drag); <c>null</c> means just <see cref="Item"/>.</summary>
+    public IReadOnlyList<object>? Items { get; init; }
+
     public int OldIndex { get; init; }
     public int NewIndex { get; init; }
     public required IBlazorSortableZone From { get; init; }

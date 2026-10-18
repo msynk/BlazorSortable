@@ -11,7 +11,14 @@ public sealed class BlazorSortableEventArgs<TItem>
     /// <summary>The item that was dragged.</summary>
     public TItem Item { get; init; } = default!;
 
-    /// <summary>The item's index within its original list (only counting draggable items).</summary>
+    /// <summary>
+    /// All items moved by this drag, in list order. For a multi-drag this is the whole
+    /// selection (including <see cref="Item"/>); otherwise it contains just <see cref="Item"/>.
+    /// Mirrors <c>evt.items</c> of the SortableJS MultiDrag plugin.
+    /// </summary>
+    public IReadOnlyList<TItem> Items { get; init; } = [];
+
+    /// <summary>The item's index within its original list when the drag started.</summary>
     public int OldIndex { get; init; }
 
     /// <summary>The item's index within the destination list.</summary>
