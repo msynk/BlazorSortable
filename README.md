@@ -1,3 +1,5 @@
+**Note**: moved to bitplatform (https://bortable.bitplatform.dev)
+
 # BlazorSortable
 
 A native Blazor drag-and-drop sortable list, inspired by [SortableJS](https://github.com/SortableJS/Sortable).
